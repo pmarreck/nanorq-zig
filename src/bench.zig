@@ -37,6 +37,38 @@ const MemProfile = struct {
 	avg_allocated_per_iter: f64,
 };
 
+const NoiseMode = enum {
+	pct,
+	ber,
+};
+
+fn noiseLabel(mode: NoiseMode) []const u8 {
+	return switch (mode) {
+		.pct => "noise_pct",
+		.ber => "ber",
+	};
+}
+
+fn shapeLabel(mode: NoiseMode, shape: nanorq.NoiseShape) []const u8 {
+	return switch (mode) {
+		.pct => shapeName(shape),
+		.ber => "ber",
+	};
+}
+
+fn setNoiseValue(noise: *nanorq.NoiseParams, mode: NoiseMode, value: f64) void {
+	switch (mode) {
+		.pct => {
+			noise.pct = value;
+			noise.ber = null;
+		},
+		.ber => {
+			noise.ber = value;
+			noise.pct = 0.0;
+		},
+	}
+}
+
 pub fn main() !void {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();
@@ -54,6 +86,7 @@ pub fn main() !void {
 	var params = nanorq.EncodeParams{ .symbol_size = 1280, .alignment = 8, .crc = true };
 	var redundancy = nanorq.Redundancy{};
 	var noise = nanorq.NoiseParams{ .pct = 0.0, .shape = .random };
+	var noise_mode = NoiseMode.pct;
 	var trials: usize = 5;
 	var formats = Formats{ .text = true, .csv = true, .json = true };
 	var noise_pcts = try defaultNoisePcts(allocator);
@@ -91,6 +124,18 @@ pub fn main() !void {
 			i += 1;
 			allocator.free(noise_pcts);
 			noise_pcts = try parsePctList(allocator, args[i]);
+			noise_mode = .pct;
+		} else if (std.mem.eql(u8, arg, "--ber")) {
+			i += 1;
+			const value = try parseF64(args, i);
+			allocator.free(noise_pcts);
+			noise_pcts = try singleValueList(allocator, value);
+			noise_mode = .ber;
+		} else if (std.mem.eql(u8, arg, "--ber-list")) {
+			i += 1;
+			allocator.free(noise_pcts);
+			noise_pcts = try parsePctList(allocator, args[i]);
+			noise_mode = .ber;
 		} else if (std.mem.eql(u8, arg, "--shape")) {
 			i += 1;
 			noise.shape = try parseShape(args, i);
@@ -144,7 +189,7 @@ pub fn main() !void {
 
 	for (noise_pcts) |pct| {
 		var local_noise = noise;
-		local_noise.pct = pct;
+		setNoiseValue(&local_noise, noise_mode, pct);
 		const result = try nanorq.simulate(allocator, input, params, redundancy, local_noise, trials);
 		try rows.append(allocator, Row{
 			.noise_pct = pct,
@@ -160,55 +205,78 @@ pub fn main() !void {
 	if (mem_profile) {
 		for (noise_pcts) |pct| {
 			var local_noise = noise;
-			local_noise.pct = pct;
-			const profile = try runMemProfile(allocator, input, params, redundancy, local_noise, mem_iterations, mem_warmup);
+			setNoiseValue(&local_noise, noise_mode, pct);
+			const profile = try runMemProfile(allocator, input, params, redundancy, local_noise, pct, mem_iterations, mem_warmup);
 			try mem_profiles.append(allocator, profile);
 		}
 	}
 
-	try printReport(rows.items, formats, noise.shape, if (mem_profile) mem_profiles.items else null);
+	try printReport(rows.items, formats, noise_mode, noise.shape, if (mem_profile) mem_profiles.items else null);
 }
 
-fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile) !void {
+fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile) !void {
 	var buf: [4096]u8 = undefined;
 	var out = std.fs.File.stdout().writer(&buf);
+	const label = noiseLabel(mode);
 	if (formats.text) {
 		if (findZeroRow(rows)) |row| {
-			try out.interface.print("raw throughput (noise_pct=0)\n", .{});
+			try out.interface.print("raw throughput ({s}=0)\n", .{label});
 			try out.interface.print("encode_mbps={d:.2} decode_mbps={d:.2} total_mbps={d:.2}\n\n", .{ row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
 		}
-		try out.interface.print("resilience report (shape={s})\n", .{shapeName(shape)});
+		try out.interface.print("resilience report (shape={s})\n", .{shapeLabel(mode, shape)});
 		for (rows) |row| {
-			try out.interface.print("noise_pct={d:.2} success_rate={d:.4} encode_mbps={d:.2} decode_mbps={d:.2} total_mbps={d:.2}\n", .{ row.noise_pct, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			if (mode == .ber) {
+				try out.interface.print("{s}={e:.3} success_rate={d:.4} encode_mbps={d:.2} decode_mbps={d:.2} total_mbps={d:.2}\n", .{ label, row.noise_pct, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			} else {
+				try out.interface.print("{s}={d:.2} success_rate={d:.4} encode_mbps={d:.2} decode_mbps={d:.2} total_mbps={d:.2}\n", .{ label, row.noise_pct, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			}
 		}
 		if (mem_profiles) |profiles| {
-			try out.interface.print("\nmemory profile (shape={s})\n", .{shapeName(shape)});
+			try out.interface.print("\nmemory profile (shape={s})\n", .{shapeLabel(mode, shape)});
 			for (profiles) |profile| {
-				try out.interface.print(
-					"noise_pct={d:.2} warmup={d} iterations={d} delta_current={d} delta_peak={d} alloc_bytes={d} freed_bytes={d} allocs={d} frees={d} resizes={d} remaps={d}\n",
-					.{ profile.noise_pct, profile.warmup, profile.iterations, profile.delta_current, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps },
-				);
+				if (mode == .ber) {
+					try out.interface.print(
+						"{s}={e:.3} warmup={d} iterations={d} delta_current={d} delta_peak={d} alloc_bytes={d} freed_bytes={d} allocs={d} frees={d} resizes={d} remaps={d}\n",
+						.{ label, profile.noise_pct, profile.warmup, profile.iterations, profile.delta_current, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps },
+					);
+				} else {
+					try out.interface.print(
+						"{s}={d:.2} warmup={d} iterations={d} delta_current={d} delta_peak={d} alloc_bytes={d} freed_bytes={d} allocs={d} frees={d} resizes={d} remaps={d}\n",
+						.{ label, profile.noise_pct, profile.warmup, profile.iterations, profile.delta_current, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps },
+					);
+				}
 			}
 		}
 	}
 	if (formats.csv) {
-		try out.interface.print("noise_pct,shape,trials,successes,success_rate,avg_encode_mbps,avg_decode_mbps,avg_total_mbps\n", .{});
+		try out.interface.print("{s},shape,trials,successes,success_rate,avg_encode_mbps,avg_decode_mbps,avg_total_mbps\n", .{label});
 		for (rows) |row| {
-			try out.interface.print("{d:.4},{s},{d},{d},{d:.6},{d:.4},{d:.4},{d:.4}\n", .{ row.noise_pct, shapeName(shape), row.trials, row.successes, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			if (mode == .ber) {
+				try out.interface.print("{e:.6},{s},{d},{d},{d:.6},{d:.4},{d:.4},{d:.4}\n", .{ row.noise_pct, shapeLabel(mode, shape), row.trials, row.successes, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			} else {
+				try out.interface.print("{d:.4},{s},{d},{d},{d:.6},{d:.4},{d:.4},{d:.4}\n", .{ row.noise_pct, shapeLabel(mode, shape), row.trials, row.successes, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
+			}
 		}
 		if (mem_profiles) |profiles| {
-			try out.interface.print("mem_noise_pct,shape,warmup,iterations,baseline_current,end_current,delta_current,baseline_peak,end_peak,delta_peak,delta_allocated,delta_freed,allocs,frees,resizes,remaps,avg_allocated_per_iter\n", .{});
+			try out.interface.print("mem_{s},shape,warmup,iterations,baseline_current,end_current,delta_current,baseline_peak,end_peak,delta_peak,delta_allocated,delta_freed,allocs,frees,resizes,remaps,avg_allocated_per_iter\n", .{label});
 			for (profiles) |profile| {
-				try out.interface.print(
-					"{d:.4},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d:.4}\n",
-					.{ profile.noise_pct, shapeName(shape), profile.warmup, profile.iterations, profile.baseline_current, profile.end_current, profile.delta_current, profile.baseline_peak, profile.end_peak, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps, profile.avg_allocated_per_iter },
-				);
+				if (mode == .ber) {
+					try out.interface.print(
+						"{e:.6},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d:.4}\n",
+						.{ profile.noise_pct, shapeLabel(mode, shape), profile.warmup, profile.iterations, profile.baseline_current, profile.end_current, profile.delta_current, profile.baseline_peak, profile.end_peak, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps, profile.avg_allocated_per_iter },
+					);
+				} else {
+					try out.interface.print(
+						"{d:.4},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d:.4}\n",
+						.{ profile.noise_pct, shapeLabel(mode, shape), profile.warmup, profile.iterations, profile.baseline_current, profile.end_current, profile.delta_current, profile.baseline_peak, profile.end_peak, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps, profile.avg_allocated_per_iter },
+					);
+				}
 			}
 		}
 	}
 	if (formats.json) {
 		try out.interface.writeAll("{\"shape\":\"");
-		try out.interface.print("{s}", .{shapeName(shape)});
+		try out.interface.print("{s}", .{shapeLabel(mode, shape)});
 		try out.interface.writeAll("\"");
 		if (findZeroRow(rows)) |row| {
 			try out.interface.writeAll(",\"raw_throughput\":{");
@@ -224,8 +292,14 @@ fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape, me
 			try out.interface.writeAll(",\"memory_profile\":[");
 			for (profiles, 0..) |profile, idx| {
 				if (idx != 0) try out.interface.writeAll(",");
-				try out.interface.writeAll("{\"noise_pct\":");
-				try out.interface.print("{d:.6}", .{profile.noise_pct});
+				try out.interface.writeAll("{\"");
+				try out.interface.writeAll(label);
+				try out.interface.writeAll("\":");
+				if (mode == .ber) {
+					try out.interface.print("{e:.6}", .{profile.noise_pct});
+				} else {
+					try out.interface.print("{d:.6}", .{profile.noise_pct});
+				}
 				try out.interface.writeAll(",\"warmup\":");
 				try out.interface.print("{d}", .{profile.warmup});
 				try out.interface.writeAll(",\"iterations\":");
@@ -263,8 +337,14 @@ fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape, me
 		try out.interface.writeAll(",\"rows\":[");
 		for (rows, 0..) |row, idx| {
 			if (idx != 0) try out.interface.writeAll(",");
-			try out.interface.writeAll("{\"noise_pct\":");
-			try out.interface.print("{d:.6}", .{row.noise_pct});
+			try out.interface.writeAll("{\"");
+			try out.interface.writeAll(label);
+			try out.interface.writeAll("\":");
+			if (mode == .ber) {
+				try out.interface.print("{e:.6}", .{row.noise_pct});
+			} else {
+				try out.interface.print("{d:.6}", .{row.noise_pct});
+			}
 			try out.interface.writeAll(",\"trials\":");
 			try out.interface.print("{d}", .{row.trials});
 			try out.interface.writeAll(",\"successes\":");
@@ -290,6 +370,7 @@ fn runMemProfile(
 	params: nanorq.EncodeParams,
 	redundancy: nanorq.Redundancy,
 	noise: nanorq.NoiseParams,
+	noise_value: f64,
 	iterations: usize,
 	warmup: usize,
 ) !MemProfile {
@@ -319,7 +400,7 @@ fn runMemProfile(
 		0.0;
 
 	return MemProfile{
-		.noise_pct = noise.pct,
+		.noise_pct = noise_value,
 		.iterations = iterations,
 		.warmup = warmup,
 		.baseline_current = baseline.current,
@@ -375,6 +456,13 @@ fn parsePctList(allocator: std.mem.Allocator, text: []const u8) ![]f64 {
 		const value = try std.fmt.parseFloat(f64, part);
 		try list.append(allocator, value);
 	}
+	return list.toOwnedSlice(allocator);
+}
+
+fn singleValueList(allocator: std.mem.Allocator, value: f64) ![]f64 {
+	var list = std.ArrayList(f64).empty;
+	errdefer list.deinit(allocator);
+	try list.append(allocator, value);
 	return list.toOwnedSlice(allocator);
 }
 
@@ -445,6 +533,8 @@ fn printUsage() !void {
 	try out.interface.print("  --drop-pct <float>\n", .{});
 	try out.interface.print("  --crc | --no-crc\n", .{});
 	try out.interface.print("  --noise-pcts <a,b,c>\n", .{});
+	try out.interface.print("  --ber <rate>\n", .{});
+	try out.interface.print("  --ber-list <a,b,c>\n", .{});
 	try out.interface.print("  --shape <random|clustered|normalized>\n", .{});
 	try out.interface.print("  --include-tags\n", .{});
 	try out.interface.print("  --cluster-size <n>\n", .{});

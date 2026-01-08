@@ -512,6 +512,17 @@ test "noise normalized clusters near center" {
 	try std.testing.expect(result.mean_index < 110.0);
 }
 
+test "ber drop pct matches symbol bits" {
+	const pct_zero = try nanorq.symbolDropPctFromBER(0.0, 1280);
+	try std.testing.expectEqual(@as(f64, 0.0), pct_zero);
+
+	const pct_full = try nanorq.symbolDropPctFromBER(1.0, 1280);
+	try std.testing.expectEqual(@as(f64, 100.0), pct_full);
+
+	const pct_half = try nanorq.symbolDropPctFromBER(0.5, 1);
+	try std.testing.expectApproxEqAbs(@as(f64, 99.609375), pct_half, 1e-9);
+}
+
 test "simulate reports deterministic success rate for zero noise" {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();

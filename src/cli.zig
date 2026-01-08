@@ -109,6 +109,10 @@ fn cmdNoise(allocator: std.mem.Allocator, args: []const []const u8) !void {
 		} else if (std.mem.eql(u8, arg, "--shape")) {
 			i += 1;
 			params.shape = try parseShape(args, i);
+		} else if (std.mem.eql(u8, arg, "--ber")) {
+			i += 1;
+			params.ber = try parseF64(args, i);
+			params.pct = 0.0;
 		} else if (std.mem.eql(u8, arg, "--cluster-size")) {
 			i += 1;
 			params.cluster_size = try parseUsize(args, i);
@@ -138,6 +142,13 @@ fn cmdNoise(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
 	const input = try readAllStdin(allocator);
 	defer allocator.free(input);
+
+	if (params.ber) |ber| {
+		const result = try nanorq.applyBerErasures(allocator, input, ber, params.seed);
+		defer allocator.free(result);
+		try writeAllStdout(result);
+		return;
+	}
 
 	const result = try nanorq.applyNoise(allocator, input, params);
 	defer allocator.free(result.data);
@@ -185,6 +196,10 @@ fn cmdSimulate(allocator: std.mem.Allocator, args: []const []const u8) !void {
 		} else if (std.mem.eql(u8, arg, "--noise-pct")) {
 			i += 1;
 			noise.pct = try parseF64(args, i);
+		} else if (std.mem.eql(u8, arg, "--ber")) {
+			i += 1;
+			noise.ber = try parseF64(args, i);
+			noise.pct = 0.0;
 		} else if (std.mem.eql(u8, arg, "--shape")) {
 			i += 1;
 			noise.shape = try parseShape(args, i);
@@ -372,6 +387,7 @@ fn printNoiseUsage() !void {
 	try out.interface.print("nanorq noise [options]\n", .{});
 	try out.interface.print("  --pct <float>\n", .{});
 	try out.interface.print("  --shape <random|clustered|normalized>\n", .{});
+	try out.interface.print("  --ber <rate>\n", .{});
 	try out.interface.print("  --cluster-size <n>\n", .{});
 	try out.interface.print("  --cluster-count <n>\n", .{});
 	try out.interface.print("  --center <index>\n", .{});
@@ -396,6 +412,7 @@ fn printSimulateUsage() !void {
 	try out.interface.print("  --precalculate\n", .{});
 	try out.interface.print("  --crc | --no-crc\n", .{});
 	try out.interface.print("  --noise-pct <float>\n", .{});
+	try out.interface.print("  --ber <rate>\n", .{});
 	try out.interface.print("  --shape <random|clustered|normalized>\n", .{});
 	try out.interface.print("  --include-tags\n", .{});
 	try out.interface.print("  --cluster-size <n>\n", .{});

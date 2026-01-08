@@ -25,6 +25,7 @@ pub const NoiseShape = enum {
 pub const NoiseParams = struct {
 	pct: f64,
 	shape: NoiseShape,
+	ber: ?f64 = null,
 	cluster_size: usize = 64,
 	cluster_count: ?usize = null,
 	center: ?usize = null,
@@ -195,6 +196,7 @@ pub fn decode(allocator: std.mem.Allocator, encoded: []const u8) !DecodeResult {
 }
 
 pub fn applyNoise(allocator: std.mem.Allocator, data: []const u8, params: NoiseParams) !NoiseResult {
+	if (params.ber != null) return error.InvalidNoiseParams;
 	if (params.pct < 0.0) return error.InvalidNoisePct;
 	if (params.pct == 0.0) {
 		return NoiseResult{ .data = try allocator.dupe(u8, data), .changed_count = 0, .mean_index = 0.0 };
@@ -229,19 +231,26 @@ pub fn simulate(allocator: std.mem.Allocator, input: []const u8, params: EncodeP
 		var noise_params = noise;
 		noise_params.seed = noise.seed + @as(u64, @intCast(trial));
 
-		var noisy = try applyNoise(allocator, encoded, noise_params);
-		defer allocator.free(noisy.data);
+		var noisy_data = blk: {
+			if (noise_params.ber) |ber| {
+				const dropped = try dropSymbolsFromBER(allocator, encoded, ber, noise_params.seed);
+				break :blk dropped;
+			}
+			const noisy = try applyNoise(allocator, encoded, noise_params);
+			break :blk noisy.data;
+		};
+		defer allocator.free(noisy_data);
 
 		if (redundancy.drop_pct) |drop_pct| {
 			if (drop_pct > 0.0) {
-				const dropped = try dropSymbols(allocator, noisy.data, drop_pct, noise_params.seed ^ 0x9e3779b97f4a7c15);
-				allocator.free(noisy.data);
-				noisy.data = dropped;
+				const dropped = try dropSymbols(allocator, noisy_data, drop_pct, noise_params.seed ^ 0x9e3779b97f4a7c15);
+				allocator.free(noisy_data);
+				noisy_data = dropped;
 			}
 		}
 
 		const decode_start = std.time.nanoTimestamp();
-		const decoded = decode(allocator, noisy.data) catch {
+		const decoded = decode(allocator, noisy_data) catch {
 			decode_time_ns += @as(u64, @intCast(std.time.nanoTimestamp() - decode_start));
 			continue;
 		};
@@ -308,6 +317,27 @@ fn dropSymbols(allocator: std.mem.Allocator, encoded: []const u8, drop_pct: f64,
 	}
 
 	return out.toOwnedSlice(allocator);
+}
+
+pub fn symbolDropPctFromBER(ber: f64, symbol_bytes: usize) !f64 {
+	if (ber < 0.0 or ber > 1.0) return error.InvalidBer;
+	if (ber == 0.0 or symbol_bytes == 0) return 0.0;
+	if (ber == 1.0) return 100.0;
+	const bits = @as(f64, @floatFromInt(symbol_bytes * 8));
+	const keep_prob = std.math.pow(f64, 1.0 - ber, bits);
+	const drop_prob = 1.0 - keep_prob;
+	return drop_prob * 100.0;
+}
+
+fn dropSymbolsFromBER(allocator: std.mem.Allocator, encoded: []const u8, ber: f64, seed: u64) ![]u8 {
+	const header = try parseHeader(encoded);
+	if (header.symbol_size == 0) return error.InvalidSymbolSize;
+	const drop_pct = try symbolDropPctFromBER(ber, header.symbol_size);
+	return dropSymbols(allocator, encoded, drop_pct, seed);
+}
+
+pub fn applyBerErasures(allocator: std.mem.Allocator, encoded: []const u8, ber: f64, seed: u64) ![]u8 {
+	return dropSymbolsFromBER(allocator, encoded, ber, seed);
 }
 
 fn encoderNew(allocator: std.mem.Allocator, len: usize, params: EncodeParams) !core.Nanorq {
