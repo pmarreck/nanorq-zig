@@ -1,15 +1,57 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const gf256 = @import("gf256.zig");
 
-const Vec = gf256.Vec;
-const vec_len: usize = @sizeOf(Vec);
+const use_vec32 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
 
-fn loadVec(ptr: [*]const u8) Vec {
-	return @as(*align(1) const Vec, @ptrCast(ptr)).*;
+fn vecLen(comptime VecT: type) usize {
+	return @sizeOf(VecT);
 }
 
-fn storeVec(ptr: [*]u8, v: Vec) void {
-	@as(*align(1) Vec, @ptrCast(ptr)).* = v;
+fn loadVec(comptime VecT: type, ptr: [*]const u8) VecT {
+	return @as(*align(1) const VecT, @ptrCast(ptr)).*;
+}
+
+fn storeVec(comptime VecT: type, ptr: [*]u8, v: VecT) void {
+	@as(*align(1) VecT, @ptrCast(ptr)).* = v;
+}
+
+fn addRowVec(comptime VecT: type, dst: []u8, src: []u8) void {
+	const len = vecLen(VecT);
+	var i: usize = 0;
+	while (i + len <= dst.len) : (i += len) {
+		const a = loadVec(VecT, dst.ptr + i);
+		const b = loadVec(VecT, src.ptr + i);
+		storeVec(VecT, dst.ptr + i, a ^ b);
+	}
+	while (i < dst.len) : (i += 1) {
+		dst[i] ^= src[i];
+	}
+}
+
+fn axpyVec(comptime VecT: type, dst: []u8, src: []u8, beta: u8) void {
+	const len = vecLen(VecT);
+	var i: usize = 0;
+	while (i + len <= dst.len) : (i += len) {
+		const src_vec = loadVec(VecT, src.ptr + i);
+		const dst_vec = loadVec(VecT, dst.ptr + i);
+		storeVec(VecT, dst.ptr + i, dst_vec ^ gf256.mulVecConst(VecT, src_vec, beta));
+	}
+	while (i < dst.len) : (i += 1) {
+		dst[i] ^= gf256.mul(src[i], beta);
+	}
+}
+
+fn scalVec(comptime VecT: type, row: []u8, beta: u8) void {
+	const len = vecLen(VecT);
+	var i: usize = 0;
+	while (i + len <= row.len) : (i += len) {
+		const src_vec = loadVec(VecT, row.ptr + i);
+		storeVec(VecT, row.ptr + i, gf256.mulVecConst(VecT, src_vec, beta));
+	}
+	while (i < row.len) : (i += 1) {
+		row[i] = gf256.mul(row[i], beta);
+	}
 }
 
 pub const align_bytes: usize = 16;
@@ -96,14 +138,10 @@ pub const Mat = struct {
 		if (dst >= self.rows or src >= self.rows) return;
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		var i: usize = 0;
-		while (i + vec_len <= self.cols) : (i += vec_len) {
-			const a = loadVec(row_d.ptr + i);
-			const b = loadVec(row_s.ptr + i);
-			storeVec(row_d.ptr + i, a ^ b);
-		}
-		while (i < self.cols) : (i += 1) {
-			row_d[i] ^= row_s[i];
+		if (use_vec32) {
+			addRowVec(gf256.Vec32, row_d, row_s);
+		} else {
+			addRowVec(gf256.Vec16, row_d, row_s);
 		}
 	}
 
@@ -113,14 +151,10 @@ pub const Mat = struct {
 		if (beta == 1) return self.addRow(dst, src);
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		var i: usize = 0;
-		while (i + vec_len <= self.cols) : (i += vec_len) {
-			const src_vec = loadVec(row_s.ptr + i);
-			const dst_vec = loadVec(row_d.ptr + i);
-			storeVec(row_d.ptr + i, dst_vec ^ gf256.mulVecConst(src_vec, beta));
-		}
-		while (i < self.cols) : (i += 1) {
-			row_d[i] ^= gf256.mul(row_s[i], beta);
+		if (use_vec32) {
+			axpyVec(gf256.Vec32, row_d, row_s, beta);
+		} else {
+			axpyVec(gf256.Vec16, row_d, row_s, beta);
 		}
 	}
 
@@ -128,13 +162,10 @@ pub const Mat = struct {
 		if (row >= self.rows) return;
 		if (beta < 2) return;
 		const row_s = self.rowSlice(row);
-		var i: usize = 0;
-		while (i + vec_len <= self.cols) : (i += vec_len) {
-			const src_vec = loadVec(row_s.ptr + i);
-			storeVec(row_s.ptr + i, gf256.mulVecConst(src_vec, beta));
-		}
-		while (i < self.cols) : (i += 1) {
-			row_s[i] = gf256.mul(row_s[i], beta);
+		if (use_vec32) {
+			scalVec(gf256.Vec32, row_s, beta);
+		} else {
+			scalVec(gf256.Vec16, row_s, beta);
 		}
 	}
 

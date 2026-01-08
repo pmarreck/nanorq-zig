@@ -37,6 +37,15 @@ const MemProfile = struct {
 	avg_allocated_per_iter: f64,
 };
 
+const MicroResult = struct {
+	cols: usize,
+	iters: usize,
+	add_mbps: f64,
+	axpy_b1_mbps: f64,
+	axpy_b2_mbps: f64,
+	scal_b2_mbps: f64,
+};
+
 const NoiseMode = enum {
 	pct,
 	ber,
@@ -93,6 +102,9 @@ pub fn main() !void {
 	var mem_profile = false;
 	var mem_iterations: usize = 25;
 	var mem_warmup: usize = 5;
+	var micro = false;
+	var micro_iters: usize = 50_000;
+	var micro_cols: ?usize = null;
 	defer allocator.free(noise_pcts);
 
 	var i: usize = 1;
@@ -170,6 +182,14 @@ pub fn main() !void {
 		} else if (std.mem.eql(u8, arg, "--mem-warmup")) {
 			i += 1;
 			mem_warmup = try parseUsize(args, i);
+		} else if (std.mem.eql(u8, arg, "--micro")) {
+			micro = true;
+		} else if (std.mem.eql(u8, arg, "--micro-iters")) {
+			i += 1;
+			micro_iters = try parseUsize(args, i);
+		} else if (std.mem.eql(u8, arg, "--micro-cols")) {
+			i += 1;
+			micro_cols = try parseUsize(args, i);
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
 			try printUsage();
 			return;
@@ -186,6 +206,7 @@ pub fn main() !void {
 	defer rows.deinit(allocator);
 	var mem_profiles = std.ArrayList(MemProfile).empty;
 	defer mem_profiles.deinit(allocator);
+	var micro_result: ?MicroResult = null;
 
 	for (noise_pcts) |pct| {
 		var local_noise = noise;
@@ -211,10 +232,15 @@ pub fn main() !void {
 		}
 	}
 
-	try printReport(rows.items, formats, noise_mode, noise.shape, if (mem_profile) mem_profiles.items else null);
+	if (micro) {
+		const cols = micro_cols orelse params.symbol_size;
+		micro_result = try runMicroBench(allocator, cols, micro_iters);
+	}
+
+	try printReport(rows.items, formats, noise_mode, noise.shape, if (mem_profile) mem_profiles.items else null, micro_result);
 }
 
-fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile) !void {
+fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile, micro_result: ?MicroResult) !void {
 	var buf: [4096]u8 = undefined;
 	var out = std.fs.File.stdout().writer(&buf);
 	const label = noiseLabel(mode);
@@ -246,6 +272,15 @@ fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nano
 					);
 				}
 			}
+		}
+		if (micro_result) |micro| {
+			try out.interface.print("\nmicrobench (octmat cols={d} iters={d})\n", .{ micro.cols, micro.iters });
+			try out.interface.print("addRow_mbps={d:.2} axpy_b1_mbps={d:.2} axpy_b2_mbps={d:.2} scal_b2_mbps={d:.2}\n", .{
+				micro.add_mbps,
+				micro.axpy_b1_mbps,
+				micro.axpy_b2_mbps,
+				micro.scal_b2_mbps,
+			});
 		}
 	}
 	if (formats.csv) {
@@ -334,6 +369,22 @@ fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nano
 			}
 			try out.interface.writeAll("]");
 		}
+		if (micro_result) |micro| {
+			try out.interface.writeAll(",\"microbench\":{");
+			try out.interface.writeAll("\"cols\":");
+			try out.interface.print("{d}", .{micro.cols});
+			try out.interface.writeAll(",\"iters\":");
+			try out.interface.print("{d}", .{micro.iters});
+			try out.interface.writeAll(",\"addRow_mbps\":");
+			try out.interface.print("{d:.4}", .{micro.add_mbps});
+			try out.interface.writeAll(",\"axpy_b1_mbps\":");
+			try out.interface.print("{d:.4}", .{micro.axpy_b1_mbps});
+			try out.interface.writeAll(",\"axpy_b2_mbps\":");
+			try out.interface.print("{d:.4}", .{micro.axpy_b2_mbps});
+			try out.interface.writeAll(",\"scal_b2_mbps\":");
+			try out.interface.print("{d:.4}", .{micro.scal_b2_mbps});
+			try out.interface.writeAll("}");
+		}
 		try out.interface.writeAll(",\"rows\":[");
 		for (rows, 0..) |row, idx| {
 			if (idx != 0) try out.interface.writeAll(",");
@@ -416,6 +467,57 @@ fn runMemProfile(
 		.resizes = final.resizes - baseline.resizes,
 		.remaps = final.remaps - baseline.remaps,
 		.avg_allocated_per_iter = avg_allocated_per_iter,
+	};
+}
+
+fn benchOp(comptime op: fn (*core.octmat.Mat) void, mat: *core.octmat.Mat, iters: usize, bytes_per_iter: usize) f64 {
+	const start = std.time.nanoTimestamp();
+	var i: usize = 0;
+	while (i < iters) : (i += 1) {
+		op(mat);
+	}
+	const elapsed = std.time.nanoTimestamp() - start;
+	const elapsed_s = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
+	const mb = @as(f64, @floatFromInt(bytes_per_iter * iters)) / (1024.0 * 1024.0);
+	return mb / elapsed_s;
+}
+
+fn opAdd(mat: *core.octmat.Mat) void {
+	mat.addRow(0, 1);
+}
+
+fn opAxpyB1(mat: *core.octmat.Mat) void {
+	mat.axpy(0, 1, 1);
+}
+
+fn opAxpyB2(mat: *core.octmat.Mat) void {
+	mat.axpy(0, 1, 2);
+}
+
+fn opScalB2(mat: *core.octmat.Mat) void {
+	mat.scalRow(0, 2);
+}
+
+fn runMicroBench(allocator: std.mem.Allocator, cols: usize, iters: usize) !MicroResult {
+	var mat = try core.octmat.Mat.init(allocator, 2, cols);
+	defer mat.deinit(allocator);
+
+	var prng = std.Random.DefaultPrng.init(123456);
+	var rng = prng.random();
+	for (mat.data) |*b| b.* = rng.int(u8);
+
+	const add_mbps = benchOp(opAdd, &mat, iters, cols);
+	const axpy_b1_mbps = benchOp(opAxpyB1, &mat, iters, cols);
+	const axpy_b2_mbps = benchOp(opAxpyB2, &mat, iters, cols);
+	const scal_b2_mbps = benchOp(opScalB2, &mat, iters, cols);
+
+	return MicroResult{
+		.cols = cols,
+		.iters = iters,
+		.add_mbps = add_mbps,
+		.axpy_b1_mbps = axpy_b1_mbps,
+		.axpy_b2_mbps = axpy_b2_mbps,
+		.scal_b2_mbps = scal_b2_mbps,
 	};
 }
 
@@ -547,5 +649,8 @@ fn printUsage() !void {
 	try out.interface.print("  --mem-profile\n", .{});
 	try out.interface.print("  --mem-iterations <n>\n", .{});
 	try out.interface.print("  --mem-warmup <n>\n", .{});
+	try out.interface.print("  --micro\n", .{});
+	try out.interface.print("  --micro-iters <n>\n", .{});
+	try out.interface.print("  --micro-cols <n>\n", .{});
 	try out.interface.flush();
 }

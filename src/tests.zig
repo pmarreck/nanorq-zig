@@ -285,16 +285,28 @@ test "gf256 vector mul matches scalar" {
 	for (&data) |*b| b.* = rng.int(u8);
 	const beta = rng.int(u8);
 
-	const vec: gf256.Vec = @bitCast(data);
-	const out = gf256.mulVecConst(vec, beta);
-	const out_arr: [16]u8 = @bitCast(out);
+	const vec16: gf256.Vec16 = @bitCast(data);
+	const out16 = gf256.mulVecConst(gf256.Vec16, vec16, beta);
+	const out16_arr: [16]u8 = @bitCast(out16);
 
 	var expected: [16]u8 = undefined;
 	for (data, 0..) |b, i| {
 		expected[i] = gf256.mul(b, beta);
 	}
 
-	try std.testing.expectEqualSlices(u8, &expected, &out_arr);
+	try std.testing.expectEqualSlices(u8, &expected, &out16_arr);
+
+	var data32: [32]u8 = undefined;
+	for (&data32) |*b| b.* = rng.int(u8);
+	const vec32: gf256.Vec32 = @bitCast(data32);
+	const out32 = gf256.mulVecConst(gf256.Vec32, vec32, beta);
+	const out32_arr: [32]u8 = @bitCast(out32);
+
+	var expected32: [32]u8 = undefined;
+	for (data32, 0..) |b, i| {
+		expected32[i] = gf256.mul(b, beta);
+	}
+	try std.testing.expectEqualSlices(u8, &expected32, &out32_arr);
 }
 
 test "bitmask set clear gaps" {

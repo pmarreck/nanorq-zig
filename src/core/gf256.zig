@@ -1,6 +1,7 @@
 const tables = @import("oct_tables.zig");
 
-pub const Vec = @Vector(16, u8);
+pub const Vec16 = @Vector(16, u8);
+pub const Vec32 = @Vector(32, u8);
 
 pub fn add(a: u8, b: u8) u8 {
 	return a ^ b;
@@ -28,25 +29,25 @@ pub fn div(a: u8, b: u8) u8 {
 	return tables.OCT_EXP[@intCast(diff)];
 }
 
-fn xtimeVec(v: Vec) Vec {
-	const shift = @as(Vec, @splat(@as(u8, 1)));
-	const carry = v >> @as(Vec, @splat(@as(u8, 7)));
+fn xtimeVec(comptime VecT: type, v: VecT) VecT {
+	const shift = @as(VecT, @splat(@as(u8, 1)));
+	const carry = v >> @as(VecT, @splat(@as(u8, 7)));
 	const shifted = v << shift;
-	const mask = carry * @as(Vec, @splat(@as(u8, 0x1d)));
+	const mask = carry * @as(VecT, @splat(@as(u8, 0x1d)));
 	return shifted ^ mask;
 }
 
-pub fn mulVecConst(v: Vec, b: u8) Vec {
+pub fn mulVecConst(comptime VecT: type, v: VecT, b: u8) VecT {
 	if (b == 0) return @splat(@as(u8, 0));
 	if (b == 1) return v;
-	var res: Vec = @splat(@as(u8, 0));
+	var res: VecT = @splat(@as(u8, 0));
 	var cur = v;
 	var beta = b;
 	while (beta != 0) : (beta >>= 1) {
 		if ((beta & 1) != 0) {
 			res ^= cur;
 		}
-		cur = xtimeVec(cur);
+		cur = xtimeVec(VecT, cur);
 	}
 	return res;
 }
