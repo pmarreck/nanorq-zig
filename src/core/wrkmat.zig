@@ -10,6 +10,11 @@ pub const Mat = struct {
 	blkidx: usize,
 	rowmap: []usize,
 	rowtype: []u8,
+	pub const Error = error{
+		InvalidRowType,
+		MissingGF256Block,
+		OutOfGF256Rows,
+	};
 
 	pub fn init(allocator: std.mem.Allocator, rows: usize, cols: usize) !Mat {
 		const gf2m = try gf2.Mat.init(allocator, rows, cols);
@@ -74,10 +79,14 @@ pub const Mat = struct {
 		}
 	}
 
-	pub fn axpy(self: *Mat, i: usize, j: usize, beta: u8) void {
+	pub fn axpy(self: *Mat, i: usize, j: usize, beta: u8) Error!void {
 		if (self.rowtype[i] == self.rowtype[j]) {
 			if (self.rowtype[i] == 1) {
-				self.gf256.?.axpy(self.rowmap[i], self.rowmap[j], beta);
+				if (self.gf256) |*gf256m| {
+					gf256m.axpy(self.rowmap[i], self.rowmap[j], beta);
+				} else {
+					return error.MissingGF256Block;
+				}
 				self.gf2.xorRow(i, j);
 			} else {
 				self.gf2.xorRow(i, j);
@@ -87,24 +96,35 @@ pub const Mat = struct {
 
 		if (self.rowtype[i] == 1) {
 			const bits = self.gf2.rowBits(j);
-			self.gf256.?.axpyB32(self.rowmap[i], bits, beta);
+			if (self.gf256) |*gf256m| {
+				gf256m.axpyB32(self.rowmap[i], bits, beta);
+			} else {
+				return error.MissingGF256Block;
+			}
 			return;
 		}
 
 		if (self.gf256) |*gf256m| {
-			if (self.blkidx >= gf256m.rows) return;
+			if (self.blkidx >= gf256m.rows) return error.OutOfGF256Rows;
 			const row_target = self.blkidx;
 			self.blkidx += 1;
 			self.gf2.fill(i, gf256m.rowSlice(row_target));
 			self.rowtype[i] = 1;
 			self.rowmap[i] = row_target;
 			gf256m.axpy(self.rowmap[i], self.rowmap[j], beta);
+			return;
 		}
+		return error.MissingGF256Block;
 	}
 
-	pub fn scal(self: *Mat, i: usize, beta: u8) void {
+	pub fn scal(self: *Mat, i: usize, beta: u8) Error!void {
 		if (self.rowtype[i] == 1) {
-			self.gf256.?.scalRow(self.rowmap[i], beta);
+			if (self.gf256) |*gf256m| {
+				gf256m.scalRow(self.rowmap[i], beta);
+				return;
+			}
+			return error.MissingGF256Block;
 		}
+		return error.InvalidRowType;
 	}
 };

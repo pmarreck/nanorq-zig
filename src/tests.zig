@@ -236,12 +236,44 @@ test "wrkmat axpy and promote" {
 	w.gf2.set(0, 0, 1);
 	w.gf2.set(0, 2, 1);
 
-	w.axpy(1, 0, 3);
+	try w.axpy(1, 0, 3);
 	try std.testing.expectEqual(@as(u8, 2 ^ 3), w.get(1, 0));
 
-	w.axpy(0, 1, 1);
+	try w.axpy(0, 1, 1);
 	try std.testing.expect(w.rowtype[0] == 1);
 	try std.testing.expectEqual(@as(u8, 0), w.get(0, 0));
+}
+
+test "wrkmat scal on gf2 row errors" {
+	const wrkmat = core.wrkmat;
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	var w = try wrkmat.Mat.init(allocator, 1, 4);
+	defer w.deinit(allocator);
+
+	try std.testing.expectError(wrkmat.Mat.Error.InvalidRowType, w.scal(0, 2));
+}
+
+test "wrkmat promote beyond gf256 block errors" {
+	const wrkmat = core.wrkmat;
+	const octmat = core.octmat;
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	var w = try wrkmat.Mat.init(allocator, 3, 4);
+	defer w.deinit(allocator);
+
+	var block = try octmat.Mat.init(allocator, 1, 4);
+	defer block.deinit(allocator);
+	block.set(0, 0, 2);
+
+	try w.assignBlock(allocator, &block, 1, 0, 1, 4);
+	w.gf2.set(0, 0, 1);
+
+	try std.testing.expectError(wrkmat.Mat.Error.OutOfGF256Rows, w.axpy(0, 1, 3));
 }
 
 test "bitmask set clear gaps" {

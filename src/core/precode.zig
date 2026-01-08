@@ -254,7 +254,7 @@ fn fwdGE(U: *wrkmat.Mat, S: *sched.Schedule, AT: *spmat.Mat, s: usize, e: usize,
 		for (cs.items) |tmp| {
 			const h = @as(usize, @intCast(S.di[tmp]));
 			if (h > mv and h < e) {
-				U.axpy(tmp, @intCast(S.d[row]), 1);
+				try U.axpy(tmp, @intCast(S.d[row]), 1);
 				try S.push(allocator, tmp, @intCast(S.d[row]), 1);
 			}
 		}
@@ -294,7 +294,7 @@ fn fillHDPC(allocator: std.mem.Allocator, p: *const params_mod.Params, U: *wrkma
 			if (beta != 0) {
 				const target = @as(usize, @intCast(S.d[U.rows - p.H + h]));
 				const source = @as(usize, @intCast(S.d[row]));
-				U.axpy(target, source, beta);
+				try U.axpy(target, source, beta);
 				try S.push(allocator, @intCast(target), @intCast(source), beta);
 			}
 		}
@@ -328,7 +328,7 @@ fn solveGF2(p: *const params_mod.Params, U: *wrkmat.Mat, S: *sched.Schedule, all
 		var del_row = row + 1;
 		while (del_row < rows) : (del_row += 1) {
 			if (U.get(@intCast(S.d[del_row]), col) == 0) continue;
-			U.axpy(@intCast(S.d[del_row]), @intCast(S.d[row]), 1);
+			try U.axpy(@intCast(S.d[del_row]), @intCast(S.d[row]), 1);
 			try S.push(allocator, @intCast(S.d[del_row]), @intCast(S.d[row]), 1);
 		}
 	}
@@ -353,14 +353,14 @@ fn solveGF256(p: *const params_mod.Params, U: *wrkmat.Mat, S: *sched.Schedule, a
 		}
 		if (beta > 1) {
 			const inv = oct_tables.OCT_INV[beta];
-			U.scal(@intCast(S.d[row]), inv);
+			try U.scal(@intCast(S.d[row]), inv);
 			try S.push(allocator, @intCast(S.d[row]), inv, 0);
 		}
 		var del_row = row + 1;
 		while (del_row < rows) : (del_row += 1) {
 			beta = U.get(@intCast(S.d[del_row]), col);
 			if (beta == 0) continue;
-			U.axpy(@intCast(S.d[del_row]), @intCast(S.d[row]), beta);
+			try U.axpy(@intCast(S.d[del_row]), @intCast(S.d[row]), beta);
 			try S.push(allocator, @intCast(S.d[del_row]), @intCast(S.d[row]), beta);
 		}
 	}
