@@ -292,8 +292,10 @@ fn fillHDPC(allocator: std.mem.Allocator, p: *const params_mod.Params, U: *wrkma
 		for (0..p.H) |h| {
 			const beta = hdpc.get(h, @intCast(S.c[row]));
 			if (beta != 0) {
-				U.axpy(U.rows - p.H + h, @intCast(S.d[row]), beta);
-				try S.push(allocator, @intCast(U.rows - p.H + h), @intCast(S.d[row]), beta);
+				const target = @as(usize, @intCast(S.d[U.rows - p.H + h]));
+				const source = @as(usize, @intCast(S.d[row]));
+				U.axpy(target, source, beta);
+				try S.push(allocator, @intCast(target), @intCast(source), beta);
 			}
 		}
 	}
@@ -304,7 +306,8 @@ fn makeU(allocator: std.mem.Allocator, p: *const params_mod.Params, A: *spmat.Ma
 	fillU(&U, A, S);
 	try fwdGE(&U, S, AT, 0, S.i, allocator);
 	S.marks[0] = if (S.ops.items.len == 0) 0 else S.ops.items.len - 1;
-	try fwdGE(&U, S, AT, S.i - 1, A.rows - p.H, allocator);
+	const start = if (S.i == 0) 0 else S.i - 1;
+	try fwdGE(&U, S, AT, start, A.rows - p.H, allocator);
 	return U;
 }
 

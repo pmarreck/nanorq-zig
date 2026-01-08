@@ -107,6 +107,8 @@ pub const Mat = struct {
 
 	pub fn fill(self: *Mat, row: usize, dst: []u8) void {
 		if (row >= self.rows) return;
+		const limit = @min(dst.len, self.cols);
+		@memset(dst[0..limit], 0);
 		const row_s = self.rowSlice(row);
 		for (row_s, 0..) |word, wi| {
 			var tmp = word;

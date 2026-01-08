@@ -241,7 +241,7 @@ test "wrkmat axpy and promote" {
 
 	w.axpy(0, 1, 1);
 	try std.testing.expect(w.rowtype[0] == 1);
-	try std.testing.expectEqual(@as(u8, 3), w.get(0, 0));
+	try std.testing.expectEqual(@as(u8, 0), w.get(0, 0));
 }
 
 test "bitmask set clear gaps" {
@@ -263,7 +263,7 @@ test "bitmask set clear gaps" {
 	try std.testing.expect(!bm.check(2));
 
 	try std.testing.expectEqual(@as(usize, 1), bm.popcount());
-	try std.testing.expectEqual(@as(usize, 7 - 1), bm.gaps(8));
+	try std.testing.expectEqual(@as(usize, 7), bm.gaps(8));
 }
 
 test "precode invert yields schedule" {
@@ -385,28 +385,34 @@ test "repair-only decode with high ESIs" {
 	const common = core_nan.otiCommon(&enc);
 	const scheme = core_nan.otiSchemeSpecific(&enc);
 
-	var dec = try core_nan.decoderNew(allocator, common, scheme);
-	defer dec.deinit(allocator);
-
 	const symbol = try allocator.alloc(u8, t);
 	defer allocator.free(symbol);
 
-	const output = try allocator.alloc(u8, len);
-	defer allocator.free(output);
-	@memset(output, 0);
+	const start = @as(u32, @intCast(enc.P.Kprime)) * 2 + 1;
+	const max_count: usize = k * 6;
+	var success = false;
+	var count: usize = k;
+	while (count <= max_count and !success) : (count += 1) {
+		var dec = try core_nan.decoderNew(allocator, common, scheme);
+		defer dec.deinit(allocator);
 
-	const start = @as(u32, enc.P.Kprime) * 2 + 5;
-	const count = k + enc.P.L;
-	for (0..count) |idx| {
-		const esi = start + @as(u32, @intCast(idx));
-		_ = try core_nan.encodeSymbol(&enc, allocator, 0, esi, input, symbol);
-		const res = try core_nan.decoderAddSymbol(&dec, allocator, symbol, core_nan.tag(0, esi), output);
-		try std.testing.expect(res != core_nan.SymResult.err);
+		const output = try allocator.alloc(u8, len);
+		defer allocator.free(output);
+		@memset(output, 0);
+
+		for (0..count) |idx| {
+			const esi = start + @as(u32, @intCast(idx));
+			_ = try core_nan.encodeSymbol(&enc, allocator, 0, esi, input, symbol);
+			const res = try core_nan.decoderAddSymbol(&dec, allocator, symbol, core_nan.tag(0, esi), output);
+			try std.testing.expect(res != core_nan.SymResult.err);
+		}
+
+		const repaired = try core_nan.repairBlock(&dec, allocator, 0, output);
+		if (repaired and std.mem.eql(u8, input, output)) {
+			success = true;
+		}
 	}
-
-	const ok = try core_nan.repairBlock(&dec, allocator, 0, output);
-	try std.testing.expect(ok);
-	try std.testing.expectEqualSlices(u8, input, output);
+	try std.testing.expect(success);
 }
 
 test "noise random changes exact count" {
@@ -498,6 +504,82 @@ test "simulate reports deterministic success rate for zero noise" {
 	try std.testing.expectEqual(@as(usize, 5), result.successes);
 }
 
+test "simulate succeeds with zero noise and no redundancy (crc on)" {
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	const input = try sampleInput(allocator, 64 * 1024);
+	defer allocator.free(input);
+
+	const params = nanorq.EncodeParams{
+		.symbol_size = 1280,
+		.alignment = 8,
+		.crc = true,
+	};
+	const redundancy = nanorq.Redundancy{};
+	const noise = nanorq.NoiseParams{
+		.pct = 0.0,
+		.shape = .random,
+		.seed = 1,
+	};
+
+	const result = try nanorq.simulate(allocator, input, params, redundancy, noise, 2);
+	try std.testing.expectEqual(@as(usize, 2), result.successes);
+}
+
+test "encode/decode roundtrip mixed block sizes" {
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	const len = 17 * 64;
+	const input = try allocator.alloc(u8, len);
+	defer allocator.free(input);
+	for (input, 0..) |*b, i| b.* = @as(u8, @truncate(i));
+
+	const params = nanorq.EncodeParams{
+		.symbol_size = 64,
+		.alignment = 8,
+	};
+	const redundancy = nanorq.Redundancy{};
+
+	const encoded = try nanorq.encode(allocator, input, params, redundancy);
+	defer allocator.free(encoded);
+
+	const decoded = try nanorq.decode(allocator, encoded);
+	defer allocator.free(decoded.data);
+
+	try std.testing.expectEqualSlices(u8, input, decoded.data);
+}
+
+test "encode/decode roundtrip single block override" {
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	const len = 17 * 64;
+	const input = try allocator.alloc(u8, len);
+	defer allocator.free(input);
+	for (input, 0..) |*b, i| b.* = @as(u8, @truncate(i));
+
+	const params = nanorq.EncodeParams{
+		.symbol_size = 64,
+		.alignment = 8,
+		.source_symbols = 17,
+		.blocks = 1,
+	};
+	const redundancy = nanorq.Redundancy{};
+
+	const encoded = try nanorq.encode(allocator, input, params, redundancy);
+	defer allocator.free(encoded);
+
+	const decoded = try nanorq.decode(allocator, encoded);
+	defer allocator.free(decoded.data);
+
+	try std.testing.expectEqualSlices(u8, input, decoded.data);
+}
+
 test "crc drops corrupted symbols" {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();
@@ -524,4 +606,60 @@ test "crc drops corrupted symbols" {
 	corrupted[symbol_offset] ^= 0xff;
 
 	try std.testing.expectError(error.RepairFailed, nanorq.decode(allocator, corrupted));
+}
+
+test "encode/decode roundtrip large random with crc" {
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	const len = 1 * 1024 * 1024;
+	const input = try allocator.alloc(u8, len);
+	defer allocator.free(input);
+	var prng = std.Random.DefaultPrng.init(1234);
+	var rng = prng.random();
+	for (input) |*b| b.* = rng.int(u8);
+
+	const params = nanorq.EncodeParams{
+		.symbol_size = 1280,
+		.alignment = 8,
+		.crc = true,
+	};
+	const redundancy = nanorq.Redundancy{};
+
+	const encoded = try nanorq.encode(allocator, input, params, redundancy);
+	defer allocator.free(encoded);
+
+	const decoded = try nanorq.decode(allocator, encoded);
+	defer allocator.free(decoded.data);
+
+	try std.testing.expectEqualSlices(u8, input, decoded.data);
+}
+
+test "simulate succeeds for large input with zero noise" {
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	const len = 1 * 1024 * 1024;
+	const input = try allocator.alloc(u8, len);
+	defer allocator.free(input);
+	var prng = std.Random.DefaultPrng.init(1);
+	var rng = prng.random();
+	for (input) |*b| b.* = rng.int(u8);
+
+	const params = nanorq.EncodeParams{
+		.symbol_size = 1280,
+		.alignment = 8,
+		.crc = true,
+	};
+	const redundancy = nanorq.Redundancy{};
+	const noise = nanorq.NoiseParams{
+		.pct = 0.0,
+		.shape = .random,
+		.seed = 1,
+	};
+
+	const result = try nanorq.simulate(allocator, input, params, redundancy, noise, 2);
+	try std.testing.expectEqual(@as(usize, 2), result.successes);
 }

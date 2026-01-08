@@ -37,9 +37,13 @@ pub fn build(b: *std.Build) void {
 	});
 
 	const test_step = b.step("test", "Run unit tests");
-	test_step.dependOn(&tests.step);
+	const run_tests = b.addRunArtifact(tests);
+	test_step.dependOn(&run_tests.step);
 
 	const bench_step = b.step("bench", "Run benchmark/report suite");
 	const run_bench = b.addRunArtifact(bench);
+	if (b.args) |args| {
+		run_bench.addArgs(args);
+	}
 	bench_step.dependOn(&run_bench.step);
 }

@@ -107,11 +107,10 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, params: EncodePar
 
 	for (0..blocks) |sbn_usize| {
 		const sbn = sbn_usize;
-		try core.generateSymbols(&rq, allocator, sbn, input);
 		const k = rq.blockSymbols(sbn);
 		const repair = computeRepair(k, redundancy);
 
-		for (0..k + repair) |esi_usize| {
+		for (0..k) |esi_usize| {
 			const esi = @as(u32, @intCast(esi_usize));
 			const written = try core.encodeSymbol(&rq, allocator, sbn, esi, input, symbol_buf);
 			if (written != symbol_size) return error.EncodeFailed;
@@ -123,6 +122,23 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, params: EncodePar
 				try appendU32(&out, allocator, crc);
 			}
 			try out.appendSlice(allocator, symbol_buf);
+		}
+
+		if (repair > 0) {
+			try core.generateSymbols(&rq, allocator, sbn, input);
+			for (k..k + repair) |esi_usize| {
+				const esi = @as(u32, @intCast(esi_usize));
+				const written = try core.encodeSymbol(&rq, allocator, sbn, esi, input, symbol_buf);
+				if (written != symbol_size) return error.EncodeFailed;
+
+				const tag = core.tag(@intCast(sbn), esi);
+				try appendU32(&out, allocator, tag);
+				if (params.crc) {
+					const crc = std.hash.Crc32.hash(symbol_buf);
+					try appendU32(&out, allocator, crc);
+				}
+				try out.appendSlice(allocator, symbol_buf);
+			}
 		}
 	}
 
@@ -139,6 +155,7 @@ pub fn decode(allocator: std.mem.Allocator, encoded: []const u8) !DecodeResult {
 
 	const transfer_len = rq.common.F;
 	const output = try allocator.alloc(u8, transfer_len);
+	errdefer allocator.free(output);
 	@memset(output, 0);
 
 	const offset_start: usize = header_size;
