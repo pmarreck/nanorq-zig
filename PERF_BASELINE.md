@@ -33,3 +33,26 @@ noise_pct,shape,trials,successes,success_rate,avg_encode_mbps,avg_decode_mbps,av
 
 Notes:
 - Bench step currently ignores CLI args forwarded after `--`, so the run used default `trials=5` and default output formats (text+csv+json) despite the command specifying otherwise.
+
+---
+
+Date: Thu Jan  8 00:50:57 EST 2026  
+Commit: 517ddc684c7055ac82cdd21607a555080e83adb0  
+Zig: 0.15.2  
+
+Run via `nix develop -c` in repo root.
+
+Command:
+```
+zig build -Doptimize=ReleaseFast bench -- --input-size 1048576 --trials 10 --overhead-pct 20 --ber-list 1e-9,1e-7,1e-6,1e-5,1e-4 --format text
+```
+
+Output:
+```
+resilience report (shape=ber)
+ber=1.000e-9 success_rate=1.0000 encode_mbps=81.49 decode_mbps=378.93 total_mbps=67.07
+ber=1.000e-7 success_rate=1.0000 encode_mbps=96.66 decode_mbps=333.23 total_mbps=74.93
+ber=1.000e-6 success_rate=1.0000 encode_mbps=95.75 decode_mbps=154.35 total_mbps=59.09
+ber=1.000e-5 success_rate=0.5000 encode_mbps=94.32 decode_mbps=114.45 total_mbps=51.71
+ber=1.000e-4 success_rate=0.0000 encode_mbps=96.74 decode_mbps=970.69 total_mbps=87.97
+```
