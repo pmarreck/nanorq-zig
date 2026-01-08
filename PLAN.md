@@ -24,3 +24,5 @@ Rewrite nanorq core in Zig (no C in the hot path), preserving CLI/bench/report f
 	- Curiosity: Are we accidentally retaining all trial buffers?
 - [x] Memory profiling suite exposes growth/peak stats over repeated runs
 	- Curiosity: Do allocator stats reflect remaps/resizes correctly on Zig 0.15?
+- [x] SIMD accelerations for octmat/gf256 hot paths (vector XOR + mul-by-const)
+	- Curiosity: Are we honoring GF(256) reduction polynomial (0x11d) in vector xtime?

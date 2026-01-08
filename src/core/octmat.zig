@@ -1,6 +1,17 @@
 const std = @import("std");
 const gf256 = @import("gf256.zig");
 
+const Vec = gf256.Vec;
+const vec_len: usize = @sizeOf(Vec);
+
+fn loadVec(ptr: [*]const u8) Vec {
+	return @as(*align(1) const Vec, @ptrCast(ptr)).*;
+}
+
+fn storeVec(ptr: [*]u8, v: Vec) void {
+	@as(*align(1) Vec, @ptrCast(ptr)).* = v;
+}
+
 pub const align_bytes: usize = 16;
 
 pub fn alignedCols(cols: usize) usize {
@@ -85,8 +96,14 @@ pub const Mat = struct {
 		if (dst >= self.rows or src >= self.rows) return;
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		for (0..self.cols) |idx| {
-			row_d[idx] ^= row_s[idx];
+		var i: usize = 0;
+		while (i + vec_len <= self.cols) : (i += vec_len) {
+			const a = loadVec(row_d.ptr + i);
+			const b = loadVec(row_s.ptr + i);
+			storeVec(row_d.ptr + i, a ^ b);
+		}
+		while (i < self.cols) : (i += 1) {
+			row_d[i] ^= row_s[i];
 		}
 	}
 
@@ -96,8 +113,14 @@ pub const Mat = struct {
 		if (beta == 1) return self.addRow(dst, src);
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		for (0..self.cols) |idx| {
-			row_d[idx] ^= gf256.mul(row_s[idx], beta);
+		var i: usize = 0;
+		while (i + vec_len <= self.cols) : (i += vec_len) {
+			const src_vec = loadVec(row_s.ptr + i);
+			const dst_vec = loadVec(row_d.ptr + i);
+			storeVec(row_d.ptr + i, dst_vec ^ gf256.mulVecConst(src_vec, beta));
+		}
+		while (i < self.cols) : (i += 1) {
+			row_d[i] ^= gf256.mul(row_s[i], beta);
 		}
 	}
 
@@ -105,8 +128,13 @@ pub const Mat = struct {
 		if (row >= self.rows) return;
 		if (beta < 2) return;
 		const row_s = self.rowSlice(row);
-		for (0..self.cols) |idx| {
-			row_s[idx] = gf256.mul(row_s[idx], beta);
+		var i: usize = 0;
+		while (i + vec_len <= self.cols) : (i += vec_len) {
+			const src_vec = loadVec(row_s.ptr + i);
+			storeVec(row_s.ptr + i, gf256.mulVecConst(src_vec, beta));
+		}
+		while (i < self.cols) : (i += 1) {
+			row_s[i] = gf256.mul(row_s[i], beta);
 		}
 	}
 

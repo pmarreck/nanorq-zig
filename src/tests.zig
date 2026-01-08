@@ -276,6 +276,27 @@ test "wrkmat promote beyond gf256 block errors" {
 	try std.testing.expectError(wrkmat.Mat.Error.OutOfGF256Rows, w.axpy(0, 1, 3));
 }
 
+test "gf256 vector mul matches scalar" {
+	const gf256 = core.gf256;
+	var prng = std.Random.DefaultPrng.init(1234);
+	var rng = prng.random();
+
+	var data: [16]u8 = undefined;
+	for (&data) |*b| b.* = rng.int(u8);
+	const beta = rng.int(u8);
+
+	const vec: gf256.Vec = @bitCast(data);
+	const out = gf256.mulVecConst(vec, beta);
+	const out_arr: [16]u8 = @bitCast(out);
+
+	var expected: [16]u8 = undefined;
+	for (data, 0..) |b, i| {
+		expected[i] = gf256.mul(b, beta);
+	}
+
+	try std.testing.expectEqualSlices(u8, &expected, &out_arr);
+}
+
 test "bitmask set clear gaps" {
 	const bitmask = core.bitmask;
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
