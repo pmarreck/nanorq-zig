@@ -56,3 +56,26 @@ ber=1.000e-6 success_rate=1.0000 encode_mbps=95.75 decode_mbps=154.35 total_mbps
 ber=1.000e-5 success_rate=0.5000 encode_mbps=94.32 decode_mbps=114.45 total_mbps=51.71
 ber=1.000e-4 success_rate=0.0000 encode_mbps=96.74 decode_mbps=970.69 total_mbps=87.97
 ```
+
+---
+
+Date: Thu Jan  8 01:00:19 EST 2026  
+Commit: 4d02fd0cf86c58b245c70f479cf60dc421535f07  
+Zig: 0.15.2  
+
+Run via `nix develop -c` in repo root.
+
+Command:
+```
+zig build -Doptimize=ReleaseFast bench -- --input-size 1048576 --trials 10 --overhead-pct 20 --ber-list 1e-9,1e-7,1e-6,1e-5,1e-4 --format text
+```
+
+Output:
+```
+resilience report (shape=ber)
+ber=1.000e-9 success_rate=1.0000 encode_mbps=126.17 decode_mbps=342.37 total_mbps=92.19
+ber=1.000e-7 success_rate=1.0000 encode_mbps=153.94 decode_mbps=381.84 total_mbps=109.71
+ber=1.000e-6 success_rate=1.0000 encode_mbps=150.11 decode_mbps=211.47 total_mbps=87.79
+ber=1.000e-5 success_rate=0.5000 encode_mbps=150.25 decode_mbps=176.62 total_mbps=81.19
+ber=1.000e-4 success_rate=0.0000 encode_mbps=147.30 decode_mbps=965.25 total_mbps=127.80
+```
