@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$HOME/dotfiles/bin/src/capture.bash"
+
+out=
+err=
+rc=0
+
+if command -v zig >/dev/null; then
+	capture zig build -Doptimize=ReleaseFast bench -- --input-size 65536 --trials 1 --noise-pcts 0,5
+else
+	capture nix develop -c zig build -Doptimize=ReleaseFast bench -- --input-size 65536 --trials 1 --noise-pcts 0,5
+fi
+
+printf "%s\n" "$out"
+if [ -n "$err" ]; then
+	printf "%s\n" "$err" >&2
+fi
+
+exit "$rc"
