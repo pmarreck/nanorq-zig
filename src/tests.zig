@@ -297,6 +297,26 @@ test "nanorq tag packs sbn and esi" {
 	try std.testing.expectEqual(@as(u32, 0x02123456), core_nan.tag(2, 0x123456));
 }
 
+test "counting allocator tracks bytes" {
+	const counting = core.counting_allocator;
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	var counter = counting.CountingAllocator.init(allocator);
+	const alloc = counter.allocator();
+	const baseline = counter.snapshot().current;
+
+	const buf = try alloc.alloc(u8, 64);
+	var stats = counter.snapshot();
+	try std.testing.expect(stats.current >= baseline + 64);
+	try std.testing.expect(stats.peak >= stats.current);
+
+	alloc.free(buf);
+	stats = counter.snapshot();
+	try std.testing.expectEqual(baseline, stats.current);
+}
+
 test "gen scheme specific defaults" {
 	const core_nan = core.nanorq_core;
 	const common = core_nan.OtiCommon{ .F = 1000, .T = 10, .Al = 4 };

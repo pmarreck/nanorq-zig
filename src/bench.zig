@@ -1,5 +1,6 @@
 const std = @import("std");
 const nanorq = @import("nanorq.zig");
+const core = @import("core/mod.zig");
 
 const Formats = struct {
 	text: bool,
@@ -15,6 +16,25 @@ const Row = struct {
 	avg_encode_mbps: f64,
 	avg_decode_mbps: f64,
 	avg_total_mbps: f64,
+};
+
+const MemProfile = struct {
+	noise_pct: f64,
+	iterations: usize,
+	warmup: usize,
+	baseline_current: usize,
+	baseline_peak: usize,
+	end_current: usize,
+	end_peak: usize,
+	delta_current: i64,
+	delta_peak: i64,
+	delta_allocated: usize,
+	delta_freed: usize,
+	allocs: usize,
+	frees: usize,
+	resizes: usize,
+	remaps: usize,
+	avg_allocated_per_iter: f64,
 };
 
 pub fn main() !void {
@@ -37,6 +57,9 @@ pub fn main() !void {
 	var trials: usize = 5;
 	var formats = Formats{ .text = true, .csv = true, .json = true };
 	var noise_pcts = try defaultNoisePcts(allocator);
+	var mem_profile = false;
+	var mem_iterations: usize = 25;
+	var mem_warmup: usize = 5;
 	defer allocator.free(noise_pcts);
 
 	var i: usize = 1;
@@ -94,6 +117,14 @@ pub fn main() !void {
 		} else if (std.mem.eql(u8, arg, "--format")) {
 			i += 1;
 			formats = try parseFormats(args, i);
+		} else if (std.mem.eql(u8, arg, "--mem-profile")) {
+			mem_profile = true;
+		} else if (std.mem.eql(u8, arg, "--mem-iterations")) {
+			i += 1;
+			mem_iterations = try parseUsize(args, i);
+		} else if (std.mem.eql(u8, arg, "--mem-warmup")) {
+			i += 1;
+			mem_warmup = try parseUsize(args, i);
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
 			try printUsage();
 			return;
@@ -108,6 +139,8 @@ pub fn main() !void {
 
 	var rows = std.ArrayList(Row).empty;
 	defer rows.deinit(allocator);
+	var mem_profiles = std.ArrayList(MemProfile).empty;
+	defer mem_profiles.deinit(allocator);
 
 	for (noise_pcts) |pct| {
 		var local_noise = noise;
@@ -124,10 +157,19 @@ pub fn main() !void {
 		});
 	}
 
-	try printReport(rows.items, formats, noise.shape);
+	if (mem_profile) {
+		for (noise_pcts) |pct| {
+			var local_noise = noise;
+			local_noise.pct = pct;
+			const profile = try runMemProfile(allocator, input, params, redundancy, local_noise, mem_iterations, mem_warmup);
+			try mem_profiles.append(allocator, profile);
+		}
+	}
+
+	try printReport(rows.items, formats, noise.shape, if (mem_profile) mem_profiles.items else null);
 }
 
-fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape) !void {
+fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile) !void {
 	var buf: [4096]u8 = undefined;
 	var out = std.fs.File.stdout().writer(&buf);
 	if (formats.text) {
@@ -139,28 +181,86 @@ fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape) !v
 		for (rows) |row| {
 			try out.interface.print("noise_pct={d:.2} success_rate={d:.4} encode_mbps={d:.2} decode_mbps={d:.2} total_mbps={d:.2}\n", .{ row.noise_pct, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
 		}
+		if (mem_profiles) |profiles| {
+			try out.interface.print("\nmemory profile (shape={s})\n", .{shapeName(shape)});
+			for (profiles) |profile| {
+				try out.interface.print(
+					"noise_pct={d:.2} warmup={d} iterations={d} delta_current={d} delta_peak={d} alloc_bytes={d} freed_bytes={d} allocs={d} frees={d} resizes={d} remaps={d}\n",
+					.{ profile.noise_pct, profile.warmup, profile.iterations, profile.delta_current, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps },
+				);
+			}
+		}
 	}
 	if (formats.csv) {
 		try out.interface.print("noise_pct,shape,trials,successes,success_rate,avg_encode_mbps,avg_decode_mbps,avg_total_mbps\n", .{});
 		for (rows) |row| {
 			try out.interface.print("{d:.4},{s},{d},{d},{d:.6},{d:.4},{d:.4},{d:.4}\n", .{ row.noise_pct, shapeName(shape), row.trials, row.successes, row.success_rate, row.avg_encode_mbps, row.avg_decode_mbps, row.avg_total_mbps });
 		}
+		if (mem_profiles) |profiles| {
+			try out.interface.print("mem_noise_pct,shape,warmup,iterations,baseline_current,end_current,delta_current,baseline_peak,end_peak,delta_peak,delta_allocated,delta_freed,allocs,frees,resizes,remaps,avg_allocated_per_iter\n", .{});
+			for (profiles) |profile| {
+				try out.interface.print(
+					"{d:.4},{s},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d:.4}\n",
+					.{ profile.noise_pct, shapeName(shape), profile.warmup, profile.iterations, profile.baseline_current, profile.end_current, profile.delta_current, profile.baseline_peak, profile.end_peak, profile.delta_peak, profile.delta_allocated, profile.delta_freed, profile.allocs, profile.frees, profile.resizes, profile.remaps, profile.avg_allocated_per_iter },
+				);
+			}
+		}
 	}
 	if (formats.json) {
 		try out.interface.writeAll("{\"shape\":\"");
 		try out.interface.print("{s}", .{shapeName(shape)});
-		try out.interface.writeAll("\",");
+		try out.interface.writeAll("\"");
 		if (findZeroRow(rows)) |row| {
-			try out.interface.writeAll("\"raw_throughput\":{");
+			try out.interface.writeAll(",\"raw_throughput\":{");
 			try out.interface.writeAll("\"avg_encode_mbps\":");
 			try out.interface.print("{d:.4}", .{row.avg_encode_mbps});
 			try out.interface.writeAll(",\"avg_decode_mbps\":");
 			try out.interface.print("{d:.4}", .{row.avg_decode_mbps});
 			try out.interface.writeAll(",\"avg_total_mbps\":");
 			try out.interface.print("{d:.4}", .{row.avg_total_mbps});
-			try out.interface.writeAll("},");
+			try out.interface.writeAll("}");
 		}
-		try out.interface.writeAll("\"rows\":[");
+		if (mem_profiles) |profiles| {
+			try out.interface.writeAll(",\"memory_profile\":[");
+			for (profiles, 0..) |profile, idx| {
+				if (idx != 0) try out.interface.writeAll(",");
+				try out.interface.writeAll("{\"noise_pct\":");
+				try out.interface.print("{d:.6}", .{profile.noise_pct});
+				try out.interface.writeAll(",\"warmup\":");
+				try out.interface.print("{d}", .{profile.warmup});
+				try out.interface.writeAll(",\"iterations\":");
+				try out.interface.print("{d}", .{profile.iterations});
+				try out.interface.writeAll(",\"baseline_current\":");
+				try out.interface.print("{d}", .{profile.baseline_current});
+				try out.interface.writeAll(",\"end_current\":");
+				try out.interface.print("{d}", .{profile.end_current});
+				try out.interface.writeAll(",\"delta_current\":");
+				try out.interface.print("{d}", .{profile.delta_current});
+				try out.interface.writeAll(",\"baseline_peak\":");
+				try out.interface.print("{d}", .{profile.baseline_peak});
+				try out.interface.writeAll(",\"end_peak\":");
+				try out.interface.print("{d}", .{profile.end_peak});
+				try out.interface.writeAll(",\"delta_peak\":");
+				try out.interface.print("{d}", .{profile.delta_peak});
+				try out.interface.writeAll(",\"delta_allocated\":");
+				try out.interface.print("{d}", .{profile.delta_allocated});
+				try out.interface.writeAll(",\"delta_freed\":");
+				try out.interface.print("{d}", .{profile.delta_freed});
+				try out.interface.writeAll(",\"allocs\":");
+				try out.interface.print("{d}", .{profile.allocs});
+				try out.interface.writeAll(",\"frees\":");
+				try out.interface.print("{d}", .{profile.frees});
+				try out.interface.writeAll(",\"resizes\":");
+				try out.interface.print("{d}", .{profile.resizes});
+				try out.interface.writeAll(",\"remaps\":");
+				try out.interface.print("{d}", .{profile.remaps});
+				try out.interface.writeAll(",\"avg_allocated_per_iter\":");
+				try out.interface.print("{d:.4}", .{profile.avg_allocated_per_iter});
+				try out.interface.writeAll("}");
+			}
+			try out.interface.writeAll("]");
+		}
+		try out.interface.writeAll(",\"rows\":[");
 		for (rows, 0..) |row, idx| {
 			if (idx != 0) try out.interface.writeAll(",");
 			try out.interface.writeAll("{\"noise_pct\":");
@@ -182,6 +282,60 @@ fn printReport(rows: []const Row, formats: Formats, shape: nanorq.NoiseShape) !v
 		try out.interface.writeAll("]}\n");
 	}
 	try out.interface.flush();
+}
+
+fn runMemProfile(
+	allocator: std.mem.Allocator,
+	input: []const u8,
+	params: nanorq.EncodeParams,
+	redundancy: nanorq.Redundancy,
+	noise: nanorq.NoiseParams,
+	iterations: usize,
+	warmup: usize,
+) !MemProfile {
+	const counting = core.counting_allocator;
+	var counter = counting.CountingAllocator.init(allocator);
+	const tracked = counter.allocator();
+
+	var i: usize = 0;
+	while (i < warmup) : (i += 1) {
+		_ = try nanorq.simulate(tracked, input, params, redundancy, noise, 1);
+	}
+	const baseline = counter.snapshot();
+
+	i = 0;
+	while (i < iterations) : (i += 1) {
+		_ = try nanorq.simulate(tracked, input, params, redundancy, noise, 1);
+	}
+	const final = counter.snapshot();
+
+	const delta_current = @as(i64, @intCast(final.current)) - @as(i64, @intCast(baseline.current));
+	const delta_peak = @as(i64, @intCast(final.peak)) - @as(i64, @intCast(baseline.peak));
+	const delta_allocated = final.total_allocated - baseline.total_allocated;
+	const delta_freed = final.total_freed - baseline.total_freed;
+	const avg_allocated_per_iter = if (iterations > 0)
+		@as(f64, @floatFromInt(delta_allocated)) / @as(f64, @floatFromInt(iterations))
+	else
+		0.0;
+
+	return MemProfile{
+		.noise_pct = noise.pct,
+		.iterations = iterations,
+		.warmup = warmup,
+		.baseline_current = baseline.current,
+		.baseline_peak = baseline.peak,
+		.end_current = final.current,
+		.end_peak = final.peak,
+		.delta_current = delta_current,
+		.delta_peak = delta_peak,
+		.delta_allocated = delta_allocated,
+		.delta_freed = delta_freed,
+		.allocs = final.allocs - baseline.allocs,
+		.frees = final.frees - baseline.frees,
+		.resizes = final.resizes - baseline.resizes,
+		.remaps = final.remaps - baseline.remaps,
+		.avg_allocated_per_iter = avg_allocated_per_iter,
+	};
 }
 
 fn findZeroRow(rows: []const Row) ?Row {
@@ -300,5 +454,8 @@ fn printUsage() !void {
 	try out.interface.print("  --seed <n>\n", .{});
 	try out.interface.print("  --trials <n>\n", .{});
 	try out.interface.print("  --format <text|csv|json|all>\n", .{});
+	try out.interface.print("  --mem-profile\n", .{});
+	try out.interface.print("  --mem-iterations <n>\n", .{});
+	try out.interface.print("  --mem-warmup <n>\n", .{});
 	try out.interface.flush();
 }

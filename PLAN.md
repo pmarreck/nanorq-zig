@@ -22,3 +22,5 @@ Rewrite nanorq core in Zig (no C in the hot path), preserving CLI/bench/report f
 	- Curiosity: Are we biasing toward or against edge symbols?
 - [x] Bench/report uses Zig core and stays memory-stable under large trials
 	- Curiosity: Are we accidentally retaining all trial buffers?
+- [x] Memory profiling suite exposes growth/peak stats over repeated runs
+	- Curiosity: Do allocator stats reflect remaps/resizes correctly on Zig 0.15?

@@ -11,3 +11,4 @@ pub const wrkmat = @import("wrkmat.zig");
 pub const bitmask = @import("bitmask.zig");
 pub const precode = @import("precode.zig");
 pub const nanorq_core = @import("nanorq_core.zig");
+pub const counting_allocator = @import("counting_allocator.zig");

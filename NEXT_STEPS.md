@@ -1,5 +1,5 @@
 # Next Steps
 
-- Add targeted tests for issue #25 behavior (repair-only ESIs above 2*Kprime).
-- Add cross-check tests vs. C core on small fixtures (optional, behind a flag).
-- Consider dropping C sources from default build or making it a feature flag.
+- Run `zig build -Doptimize=ReleaseFast bench -- --mem-profile --mem-iterations 25 --mem-warmup 5` and inspect growth deltas.
+- If memory still spikes, capture which phase grows (encode vs. decode vs. noise) with targeted allocator scopes.
+- Decide whether to keep memory profile in bench output or split into a dedicated subcommand.
