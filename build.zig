@@ -1,7 +1,26 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-	const target = b.standardTargetOptions(.{});
+	const cpu_model_opt = b.option([]const u8, "cpu-model", "CPU model override (baseline|native)");
+	const cpu_opt = b.option([]const u8, "cpu", "Target CPU features to add or subtract");
+	var target_query = b.standardTargetOptionsQueryOnly(.{});
+	if (cpu_model_opt) |mode| {
+		if (std.mem.eql(u8, mode, "baseline")) {
+			target_query.cpu_model = .baseline;
+		} else if (std.mem.eql(u8, mode, "native")) {
+			target_query.cpu_model = .native;
+		} else {
+			std.debug.print("unknown cpu-model '{s}' (use baseline|native)\n", .{mode});
+			b.markInvalidUserInput();
+		}
+	} else if (cpu_opt) |mode| {
+		if (std.mem.eql(u8, mode, "baseline")) {
+			target_query.cpu_model = .baseline;
+		} else if (std.mem.eql(u8, mode, "native")) {
+			target_query.cpu_model = .native;
+		}
+	}
+	const target = b.resolveTargetQuery(target_query);
 	const optimize = b.standardOptimizeOption(.{});
 
 

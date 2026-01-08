@@ -13,3 +13,8 @@ nanorq provides flexible I/O handling, wrappers are provided for memory buffers,
 
 ## Notes
   Default build is configured for AVX, adjust Makefile as needed for other archs
+
+## Zig build
+- Portable CPU model: `zig build -Dcpu-model=baseline` (alias: `-Dcpu=baseline`)
+- Host-tuned CPU model: `zig build -Dcpu-model=native` (alias: `-Dcpu=native`)
+- SIMD dispatch is selected at runtime; AVX2 requires building with AVX2 enabled
