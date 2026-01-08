@@ -274,7 +274,7 @@ fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nano
 			}
 		}
 		if (micro_result) |micro| {
-			try out.interface.print("\nmicrobench (octmat cols={d} iters={d})\n", .{ micro.cols, micro.iters });
+			try out.interface.print("\nmicrobench (octmat cols={d} iters={d} simd_bytes={d})\n", .{ micro.cols, micro.iters, core.octmat.simdBytes() });
 			try out.interface.print("addRow_mbps={d:.2} axpy_b1_mbps={d:.2} axpy_b2_mbps={d:.2} scal_b2_mbps={d:.2}\n", .{
 				micro.add_mbps,
 				micro.axpy_b1_mbps,
@@ -375,6 +375,8 @@ fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nano
 			try out.interface.print("{d}", .{micro.cols});
 			try out.interface.writeAll(",\"iters\":");
 			try out.interface.print("{d}", .{micro.iters});
+			try out.interface.writeAll(",\"simd_bytes\":");
+			try out.interface.print("{d}", .{core.octmat.simdBytes()});
 			try out.interface.writeAll(",\"addRow_mbps\":");
 			try out.interface.print("{d:.4}", .{micro.add_mbps});
 			try out.interface.writeAll(",\"axpy_b1_mbps\":");

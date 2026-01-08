@@ -105,3 +105,29 @@ ber=1.000e-4 success_rate=0.0000 encode_mbps=155.75 decode_mbps=1019.85 total_mb
 microbench (octmat cols=1280 iters=50000)
 addRow_mbps=30919.53 axpy_b1_mbps=30919.53 axpy_b2_mbps=27357.76 scal_b2_mbps=47945.92
 ```
+
+---
+
+Date: Thu Jan  8 09:12:52 EST 2026  
+Commit: f6aba724d74b91908c7eabf0de9454aad9b93681  
+Zig: 0.15.2  
+
+Run via `nix develop -c` in repo root.
+
+Command:
+```
+zig build -Doptimize=ReleaseFast bench -- --input-size 1048576 --trials 50 --overhead-pct 20 --ber-list 1e-9,1e-7,1e-6,1e-5,1e-4 --format text --micro
+```
+
+Output:
+```
+resilience report (shape=ber)
+ber=1.000e-9 success_rate=1.0000 encode_mbps=152.52 decode_mbps=408.65 total_mbps=111.06
+ber=1.000e-7 success_rate=1.0000 encode_mbps=148.01 decode_mbps=384.80 total_mbps=106.90
+ber=1.000e-6 success_rate=1.0000 encode_mbps=155.25 decode_mbps=242.07 total_mbps=94.59
+ber=1.000e-5 success_rate=0.7400 encode_mbps=148.20 decode_mbps=161.76 total_mbps=77.34
+ber=1.000e-4 success_rate=0.0000 encode_mbps=155.43 decode_mbps=1020.22 total_mbps=134.88
+
+microbench (octmat cols=1280 iters=50000 simd_bytes=16)
+addRow_mbps=41719.18 axpy_b1_mbps=40717.25 axpy_b2_mbps=53870.39 scal_b2_mbps=47131.39
+```

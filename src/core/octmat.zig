@@ -2,7 +2,23 @@ const std = @import("std");
 const builtin = @import("builtin");
 const gf256 = @import("gf256.zig");
 
-const use_vec32 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
+const compile_has_avx2 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
+var avx2_cached = std.atomic.Value(i8).init(-1);
+
+fn hasAvx2Runtime() bool {
+	if (!compile_has_avx2) return false;
+	const cached = avx2_cached.load(.monotonic);
+	if (cached >= 0) return cached == 1;
+	const query: std.Target.Query = .{};
+	const cpu = std.zig.system.x86.detectNativeCpuAndFeatures(builtin.cpu.arch, builtin.os, query);
+	const has = std.Target.x86.featureSetHas(cpu.features, .avx2);
+	avx2_cached.store(if (has) 1 else 0, .monotonic);
+	return has;
+}
+
+pub fn simdBytes() usize {
+	return if (hasAvx2Runtime()) 32 else 16;
+}
 
 fn vecLen(comptime VecT: type) usize {
 	return @sizeOf(VecT);
@@ -138,7 +154,7 @@ pub const Mat = struct {
 		if (dst >= self.rows or src >= self.rows) return;
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		if (use_vec32) {
+		if (hasAvx2Runtime()) {
 			addRowVec(gf256.Vec32, row_d, row_s);
 		} else {
 			addRowVec(gf256.Vec16, row_d, row_s);
@@ -151,7 +167,7 @@ pub const Mat = struct {
 		if (beta == 1) return self.addRow(dst, src);
 		const row_d = self.rowSlice(dst);
 		const row_s = self.rowSlice(src);
-		if (use_vec32) {
+		if (hasAvx2Runtime()) {
 			axpyVec(gf256.Vec32, row_d, row_s, beta);
 		} else {
 			axpyVec(gf256.Vec16, row_d, row_s, beta);
@@ -162,7 +178,7 @@ pub const Mat = struct {
 		if (row >= self.rows) return;
 		if (beta < 2) return;
 		const row_s = self.rowSlice(row);
-		if (use_vec32) {
+		if (hasAvx2Runtime()) {
 			scalVec(gf256.Vec32, row_s, beta);
 		} else {
 			scalVec(gf256.Vec16, row_s, beta);
