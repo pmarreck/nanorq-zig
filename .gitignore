@@ -11,3 +11,4 @@ encode
 decode
 benchmark
 .DS_Store
+.zig-cache
