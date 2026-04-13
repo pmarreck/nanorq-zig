@@ -32,8 +32,13 @@
 						version = "0.1.0";
 						src = self;
 						nativeBuildInputs = [ pkgs.zig ];
+						dontConfigure = true;
+						dontFixup = true;
 						buildPhase = ''
-							zig build -Doptimize=ReleaseFast -Doblas=classic
+							export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
+							export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
+							mkdir -p "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
+							zig build -Doptimize=ReleaseFast -Doblas=classic --color off
 						'';
 						installPhase = ''
 							mkdir -p $out/bin
