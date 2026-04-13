@@ -38,7 +38,7 @@
 							export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
 							export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
 							mkdir -p "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
-							zig build -Doptimize=ReleaseFast -Doblas=classic --color off
+							zig build -Doptimize=ReleaseFast --color off
 						'';
 						installPhase = ''
 							mkdir -p $out/bin
