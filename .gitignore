@@ -12,3 +12,5 @@ decode
 benchmark
 .DS_Store
 .zig-cache
+AGENTS.md
+result
