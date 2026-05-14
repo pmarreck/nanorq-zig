@@ -15,3 +15,4 @@ benchmark
 AGENTS.md
 result
 zig-out
+.direnv/
