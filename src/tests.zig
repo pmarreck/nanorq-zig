@@ -12,7 +12,7 @@ fn sampleInput(allocator: std.mem.Allocator, len: usize) ![]u8 {
 }
 
 test "encode/decode roundtrip" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -101,7 +101,7 @@ test "gf256 mul/inv basic" {
 
 test "gf2 set/get xor" {
 	const gf2 = core.gf2;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -122,7 +122,7 @@ test "gf2 set/get xor" {
 
 test "gf2 axpy fill nnz swapcol" {
 	const gf2 = core.gf2;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -155,7 +155,7 @@ test "gf2 axpy fill nnz swapcol" {
 test "octmat row ops" {
 	const octmat = core.octmat;
 	const gf256 = core.gf256;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -178,7 +178,7 @@ test "octmat row ops" {
 
 test "spmat transpose and nnz" {
 	const spmat = core.spmat;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -201,7 +201,7 @@ test "spmat transpose and nnz" {
 
 test "schedule init and push" {
 	const sched = core.sched;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -220,7 +220,7 @@ test "schedule init and push" {
 test "wrkmat axpy and promote" {
 	const wrkmat = core.wrkmat;
 	const octmat = core.octmat;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -246,7 +246,7 @@ test "wrkmat axpy and promote" {
 
 test "wrkmat scal on gf2 row errors" {
 	const wrkmat = core.wrkmat;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -259,7 +259,7 @@ test "wrkmat scal on gf2 row errors" {
 test "wrkmat promote beyond gf256 block errors" {
 	const wrkmat = core.wrkmat;
 	const octmat = core.octmat;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -311,7 +311,7 @@ test "gf256 vector mul matches scalar" {
 
 test "bitmask set clear gaps" {
 	const bitmask = core.bitmask;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -334,7 +334,7 @@ test "bitmask set clear gaps" {
 test "precode invert yields schedule" {
 	const precode = core.precode;
 	const params = core.params;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -364,7 +364,7 @@ test "nanorq tag packs sbn and esi" {
 
 test "counting allocator tracks bytes" {
 	const counting = core.counting_allocator;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -393,7 +393,7 @@ test "gen scheme specific defaults" {
 
 test "block symbols by source block" {
 	const core_nan = core.nanorq_core;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -407,7 +407,7 @@ test "block symbols by source block" {
 
 test "decoder accepts high repair ESI" {
 	const core_nan = core.nanorq_core;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -433,7 +433,7 @@ test "decoder accepts high repair ESI" {
 
 test "repair-only decode with high ESIs" {
 	const core_nan = core.nanorq_core;
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -481,7 +481,7 @@ test "repair-only decode with high ESIs" {
 }
 
 test "noise random changes exact count" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -501,7 +501,7 @@ test "noise random changes exact count" {
 }
 
 test "noise clustered changes exact count" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -522,7 +522,7 @@ test "noise clustered changes exact count" {
 }
 
 test "noise normalized clusters near center" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -557,7 +557,7 @@ test "ber drop pct matches symbol bits" {
 }
 
 test "simulate reports deterministic success rate for zero noise" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -581,7 +581,7 @@ test "simulate reports deterministic success rate for zero noise" {
 }
 
 test "simulate succeeds with zero noise and no redundancy (crc on)" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -605,7 +605,7 @@ test "simulate succeeds with zero noise and no redundancy (crc on)" {
 }
 
 test "encode/decode roundtrip mixed block sizes" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -630,7 +630,7 @@ test "encode/decode roundtrip mixed block sizes" {
 }
 
 test "encode/decode roundtrip single block override" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -657,7 +657,7 @@ test "encode/decode roundtrip single block override" {
 }
 
 test "crc drops corrupted symbols" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -685,7 +685,7 @@ test "crc drops corrupted symbols" {
 }
 
 test "encode/decode roundtrip large random with crc" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
@@ -713,7 +713,7 @@ test "encode/decode roundtrip large random with crc" {
 }
 
 test "simulate succeeds for large input with zero noise" {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	var gpa: std.heap.DebugAllocator(.{}) = .init;
 	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 

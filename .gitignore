@@ -14,3 +14,4 @@ benchmark
 .zig-cache
 AGENTS.md
 result
+zig-out

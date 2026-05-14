@@ -1,37 +1,38 @@
 const std = @import("std");
 const nanorq = @import("nanorq.zig");
 
-pub fn main() !void {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	const allocator = gpa.allocator();
-	defer _ = gpa.deinit();
+pub fn main(init: std.process.Init) !void {
+	const allocator = init.gpa;
+	const io = init.io;
 
-	const args = try std.process.argsAlloc(allocator);
-	defer std.process.argsFree(allocator, args);
+	const args0 = try init.minimal.args.toSlice(init.arena.allocator());
+	// Convert [:0]const u8 to []const u8 once for downstream consumers.
+	const args = try init.arena.allocator().alloc([]const u8, args0.len);
+	for (args0, 0..) |a, idx| args[idx] = a;
 
 	if (args.len < 2) {
-		try printUsage();
+		try printUsage(io);
 		return;
 	}
 
 	const cmd = args[1];
 	if (std.mem.eql(u8, cmd, "encode")) {
-		try cmdEncode(allocator, args[2..]);
+		try cmdEncode(io, allocator, args[2..]);
 	} else if (std.mem.eql(u8, cmd, "decode")) {
-		try cmdDecode(allocator, args[2..]);
+		try cmdDecode(io, allocator, args[2..]);
 	} else if (std.mem.eql(u8, cmd, "noise")) {
-		try cmdNoise(allocator, args[2..]);
+		try cmdNoise(io, allocator, args[2..]);
 	} else if (std.mem.eql(u8, cmd, "simulate")) {
-		try cmdSimulate(allocator, args[2..]);
+		try cmdSimulate(io, allocator, args[2..]);
 	} else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) {
-		try printUsage();
+		try printUsage(io);
 	} else {
-		try printUsage();
+		try printUsage(io);
 		return error.UnknownCommand;
 	}
 }
 
-fn cmdEncode(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn cmdEncode(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8) !void {
 	var params = nanorq.EncodeParams{ .symbol_size = 1280, .alignment = 8, .crc = true };
 	var redundancy = nanorq.Redundancy{};
 	var precalc = false;
@@ -64,7 +65,7 @@ fn cmdEncode(allocator: std.mem.Allocator, args: []const []const u8) !void {
 		} else if (std.mem.eql(u8, arg, "--no-crc")) {
 			params.crc = false;
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-			try printEncodeUsage();
+			try printEncodeUsage(io);
 			return;
 		} else {
 			return error.UnknownOption;
@@ -72,32 +73,32 @@ fn cmdEncode(allocator: std.mem.Allocator, args: []const []const u8) !void {
 	}
 
 	params.precalculate = precalc;
-	const input = try readAllStdin(allocator);
+	const input = try readAllStdin(io, allocator);
 	defer allocator.free(input);
 
 	const encoded = try nanorq.encode(allocator, input, params, redundancy);
 	defer allocator.free(encoded);
 
-	try writeAllStdout(encoded);
+	try writeAllStdout(io, encoded);
 }
 
-fn cmdDecode(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn cmdDecode(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8) !void {
 	if (args.len != 0 and !(args.len == 1 and (std.mem.eql(u8, args[0], "--help") or std.mem.eql(u8, args[0], "-h")))) return error.UnknownOption;
 	if (args.len == 1) {
-		try printDecodeUsage();
+		try printDecodeUsage(io);
 		return;
 	}
 
-	const input = try readAllStdin(allocator);
+	const input = try readAllStdin(io, allocator);
 	defer allocator.free(input);
 
 	const decoded = try nanorq.decode(allocator, input);
 	defer allocator.free(decoded.data);
 
-	try writeAllStdout(decoded.data);
+	try writeAllStdout(io, decoded.data);
 }
 
-fn cmdNoise(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn cmdNoise(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8) !void {
 	var params = nanorq.NoiseParams{ .pct = 0.0, .shape = .random };
 
 	var i: usize = 0;
@@ -133,30 +134,30 @@ fn cmdNoise(allocator: std.mem.Allocator, args: []const []const u8) !void {
 		} else if (std.mem.eql(u8, arg, "--include-tags")) {
 			params.symbol_bytes_only = false;
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-			try printNoiseUsage();
+			try printNoiseUsage(io);
 			return;
 		} else {
 			return error.UnknownOption;
 		}
 	}
 
-	const input = try readAllStdin(allocator);
+	const input = try readAllStdin(io, allocator);
 	defer allocator.free(input);
 
 	if (params.ber) |ber| {
 		const result = try nanorq.applyBerErasures(allocator, input, ber, params.seed);
 		defer allocator.free(result);
-		try writeAllStdout(result);
+		try writeAllStdout(io, result);
 		return;
 	}
 
 	const result = try nanorq.applyNoise(allocator, input, params);
 	defer allocator.free(result.data);
 
-	try writeAllStdout(result.data);
+	try writeAllStdout(io, result.data);
 }
 
-fn cmdSimulate(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn cmdSimulate(io: std.Io, allocator: std.mem.Allocator, args: []const []const u8) !void {
 	var params = nanorq.EncodeParams{ .symbol_size = 1280, .alignment = 8, .crc = true };
 	var redundancy = nanorq.Redundancy{};
 	var noise = nanorq.NoiseParams{ .pct = 0.0, .shape = .random };
@@ -227,18 +228,18 @@ fn cmdSimulate(allocator: std.mem.Allocator, args: []const []const u8) !void {
 			i += 1;
 			formats = try parseFormats(args, i);
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-			try printSimulateUsage();
+			try printSimulateUsage(io);
 			return;
 		} else {
 			return error.UnknownOption;
 		}
 	}
 
-	const input = try readAllStdin(allocator);
+	const input = try readAllStdin(io, allocator);
 	defer allocator.free(input);
 
 	const result = try nanorq.simulate(allocator, input, params, redundancy, noise, trials);
-	try printSimResult(result, formats);
+	try printSimResult(io, result, formats);
 }
 
 const Formats = struct {
@@ -264,9 +265,9 @@ fn parseFormats(args: []const []const u8, idx: usize) !Formats {
 	return error.InvalidFormat;
 }
 
-fn printSimResult(result: nanorq.SimResult, formats: Formats) !void {
+fn printSimResult(io: std.Io, result: nanorq.SimResult, formats: Formats) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	if (formats.text) {
 		try out.interface.print("trials: {d}\n", .{result.trials});
 		try out.interface.print("successes: {d}\n", .{result.successes});
@@ -335,20 +336,22 @@ fn parseF64(args: []const []const u8, idx: usize) !f64 {
 	return std.fmt.parseFloat(f64, args[idx]);
 }
 
-fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
-	return std.fs.File.stdin().readToEndAlloc(allocator, 1 << 30);
+fn readAllStdin(io: std.Io, allocator: std.mem.Allocator) ![]u8 {
+	var scratch: [4096]u8 = undefined;
+	var r = std.Io.File.stdin().reader(io, &scratch);
+	return r.interface.allocRemaining(allocator, .limited(1 << 30));
 }
 
-fn writeAllStdout(data: []const u8) !void {
+fn writeAllStdout(io: std.Io, data: []const u8) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.writeAll(data);
 	try out.interface.flush();
 }
 
-fn printUsage() !void {
+fn printUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq <command> [options]\n\n", .{});
 	try out.interface.print("Commands:\n", .{});
 	try out.interface.print("  encode\tEncode stdin to nanorq stream\n", .{});
@@ -359,9 +362,9 @@ fn printUsage() !void {
 	try out.interface.flush();
 }
 
-fn printEncodeUsage() !void {
+fn printEncodeUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq encode [options]\n", .{});
 	try out.interface.print("  --symbol-size <bytes>\n", .{});
 	try out.interface.print("  --align <bytes>\n", .{});
@@ -374,16 +377,16 @@ fn printEncodeUsage() !void {
 	try out.interface.flush();
 }
 
-fn printDecodeUsage() !void {
+fn printDecodeUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq decode\n", .{});
 	try out.interface.flush();
 }
 
-fn printNoiseUsage() !void {
+fn printNoiseUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq noise [options]\n", .{});
 	try out.interface.print("  --pct <float>\n", .{});
 	try out.interface.print("  --shape <random|clustered|normalized>\n", .{});
@@ -398,9 +401,9 @@ fn printNoiseUsage() !void {
 	try out.interface.flush();
 }
 
-fn printSimulateUsage() !void {
+fn printSimulateUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq simulate [options]\n", .{});
 	try out.interface.print("  --symbol-size <bytes>\n", .{});
 	try out.interface.print("  --align <bytes>\n", .{});

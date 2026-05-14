@@ -2,6 +2,13 @@ const std = @import("std");
 const nanorq = @import("nanorq.zig");
 const core = @import("core/mod.zig");
 
+// 0.16: std.time.nanoTimestamp() is gone. Use Io.Timestamp via the
+// single-threaded global Io.
+inline fn nsNow() i128 {
+	const io = std.Io.Threaded.global_single_threaded.io();
+	return @intCast(std.Io.Timestamp.now(io, .awake).nanoseconds);
+}
+
 const Formats = struct {
 	text: bool,
 	csv: bool,
@@ -78,16 +85,16 @@ fn setNoiseValue(noise: *nanorq.NoiseParams, mode: NoiseMode, value: f64) void {
 	}
 }
 
-pub fn main() !void {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	const allocator = gpa.allocator();
-	defer _ = gpa.deinit();
+pub fn main(init: std.process.Init) !void {
+	const allocator = init.gpa;
+	const io = init.io;
 
-	const args = try std.process.argsAlloc(allocator);
-	defer std.process.argsFree(allocator, args);
+	const args0 = try init.minimal.args.toSlice(init.arena.allocator());
+	const args = try init.arena.allocator().alloc([]const u8, args0.len);
+	for (args0, 0..) |a, idx| args[idx] = a;
 
 	if (args.len > 1 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) {
-		try printUsage();
+		try printUsage(io);
 		return;
 	}
 
@@ -191,7 +198,7 @@ pub fn main() !void {
 			i += 1;
 			micro_cols = try parseUsize(args, i);
 		} else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-			try printUsage();
+			try printUsage(io);
 			return;
 		} else {
 			return error.UnknownOption;
@@ -237,12 +244,12 @@ pub fn main() !void {
 		micro_result = try runMicroBench(allocator, cols, micro_iters);
 	}
 
-	try printReport(rows.items, formats, noise_mode, noise.shape, if (mem_profile) mem_profiles.items else null, micro_result);
+	try printReport(io, rows.items, formats, noise_mode, noise.shape, if (mem_profile) mem_profiles.items else null, micro_result);
 }
 
-fn printReport(rows: []const Row, formats: Formats, mode: NoiseMode, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile, micro_result: ?MicroResult) !void {
+fn printReport(io: std.Io, rows: []const Row, formats: Formats, mode: NoiseMode, shape: nanorq.NoiseShape, mem_profiles: ?[]const MemProfile, micro_result: ?MicroResult) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	const label = noiseLabel(mode);
 	if (formats.text) {
 		if (findZeroRow(rows)) |row| {
@@ -473,12 +480,12 @@ fn runMemProfile(
 }
 
 fn benchOp(comptime op: fn (*core.octmat.Mat) void, mat: *core.octmat.Mat, iters: usize, bytes_per_iter: usize) f64 {
-	const start = std.time.nanoTimestamp();
+	const start = nsNow();
 	var i: usize = 0;
 	while (i < iters) : (i += 1) {
 		op(mat);
 	}
-	const elapsed = std.time.nanoTimestamp() - start;
+	const elapsed = nsNow() - start;
 	const elapsed_s = @as(f64, @floatFromInt(elapsed)) / 1_000_000_000.0;
 	const mb = @as(f64, @floatFromInt(bytes_per_iter * iters)) / (1024.0 * 1024.0);
 	return mb / elapsed_s;
@@ -625,9 +632,9 @@ fn parseF64(args: []const []const u8, idx: usize) !f64 {
 	return std.fmt.parseFloat(f64, args[idx]);
 }
 
-fn printUsage() !void {
+fn printUsage(io: std.Io) !void {
 	var buf: [4096]u8 = undefined;
-	var out = std.fs.File.stdout().writer(&buf);
+	var out = std.Io.File.stdout().writer(io, &buf);
 	try out.interface.print("nanorq-bench [options]\n", .{});
 	try out.interface.print("  --input-size <bytes>\n", .{});
 	try out.interface.print("  --symbol-size <bytes>\n", .{});

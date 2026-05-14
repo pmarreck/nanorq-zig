@@ -1,6 +1,14 @@
 const std = @import("std");
 const core = @import("core/nanorq_core.zig");
 
+// 0.16: std.time.nanoTimestamp() is gone. Use Io.Timestamp via the
+// single-threaded global Io (timestamp ops work fine from any thread; this
+// avoids plumbing `io: std.Io` through the pure-library public API).
+inline fn nsNow() i128 {
+	const io = std.Io.Threaded.global_single_threaded.io();
+	return @intCast(std.Io.Timestamp.now(io, .awake).nanoseconds);
+}
+
 pub const EncodeParams = struct {
 	symbol_size: u16,
 	alignment: u8 = 8,
@@ -249,12 +257,12 @@ pub fn simulate(allocator: std.mem.Allocator, input: []const u8, params: EncodeP
 			}
 		}
 
-		const decode_start = std.time.nanoTimestamp();
+		const decode_start = nsNow();
 		const decoded = decode(allocator, noisy_data) catch {
-			decode_time_ns += @as(u64, @intCast(std.time.nanoTimestamp() - decode_start));
+			decode_time_ns += @as(u64, @intCast(nsNow() - decode_start));
 			continue;
 		};
-		decode_time_ns += @as(u64, @intCast(std.time.nanoTimestamp() - decode_start));
+		decode_time_ns += @as(u64, @intCast(nsNow() - decode_start));
 		defer allocator.free(decoded.data);
 
 		if (std.mem.eql(u8, input, decoded.data)) successes += 1;
@@ -278,17 +286,17 @@ pub fn simulate(allocator: std.mem.Allocator, input: []const u8, params: EncodeP
 }
 
 fn timeEncode(allocator: std.mem.Allocator, input: []const u8, params: EncodeParams, redundancy: Redundancy, timer_accum: *u64) ![]u8 {
-	const start = std.time.nanoTimestamp();
+	const start = nsNow();
 	const encoded = try encode(allocator, input, params, redundancy);
-	const elapsed = std.time.nanoTimestamp() - start;
+	const elapsed = nsNow() - start;
 	timer_accum.* += @as(u64, @intCast(elapsed));
 	return encoded;
 }
 
 fn timeDecode(allocator: std.mem.Allocator, encoded: []const u8, timer_accum: *u64) !DecodeResult {
-	const start = std.time.nanoTimestamp();
+	const start = nsNow();
 	const decoded = try decode(allocator, encoded);
-	const elapsed = std.time.nanoTimestamp() - start;
+	const elapsed = nsNow() - start;
 	timer_accum.* += @as(u64, @intCast(elapsed));
 	return decoded;
 }
