@@ -3,22 +3,28 @@
 
 	inputs = {
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+		zig-overlay = {
+			url = "github:mitchellh/zig-overlay";
+			inputs.nixpkgs.follows = "nixpkgs";
+		};
 	};
 
-	outputs = { self, nixpkgs }:
+	outputs = { self, nixpkgs, zig-overlay }:
 		let
 			systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
 			forAllSystems = nixpkgs.lib.genAttrs systems;
+			zigFor = system: zig-overlay.packages.${system}."0.16.0";
 		in {
 			devShells = forAllSystems (system:
 				let
 					pkgs = import nixpkgs { inherit system; };
+					zig = zigFor system;
 				in {
 					default = pkgs.mkShell {
-						packages = with pkgs; [
+						packages = [
 							zig
-							git
-							ripgrep
+							pkgs.git
+							pkgs.ripgrep
 						];
 					};
 				});
@@ -26,12 +32,13 @@
 			packages = forAllSystems (system:
 				let
 					pkgs = import nixpkgs { inherit system; };
+					zig = zigFor system;
 				in {
 					nanorq = pkgs.stdenv.mkDerivation {
 						pname = "nanorq";
 						version = "0.1.0";
 						src = self;
-						nativeBuildInputs = [ pkgs.zig ];
+						nativeBuildInputs = [ zig ];
 						dontConfigure = true;
 						dontFixup = true;
 						buildPhase = ''
