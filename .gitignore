@@ -16,3 +16,4 @@ AGENTS.md
 result
 zig-out
 .direnv/
+.claude/
