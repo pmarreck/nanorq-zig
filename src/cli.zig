@@ -1,5 +1,6 @@
 const std = @import("std");
 const nanorq = @import("nanorq.zig");
+const arg_parse = @import("arg_parse.zig");
 
 pub fn main(init: std.process.Init) !void {
 	const allocator = init.gpa;
@@ -242,28 +243,8 @@ fn cmdSimulate(io: std.Io, allocator: std.mem.Allocator, args: []const []const u
 	try printSimResult(io, result, formats);
 }
 
-const Formats = struct {
-	text: bool,
-	csv: bool,
-	json: bool,
-};
-
-fn parseFormats(args: []const []const u8, idx: usize) !Formats {
-	const value = args[idx];
-	if (std.mem.eql(u8, value, "all")) {
-		return Formats{ .text = true, .csv = true, .json = true };
-	}
-	if (std.mem.eql(u8, value, "text")) {
-		return Formats{ .text = true, .csv = false, .json = false };
-	}
-	if (std.mem.eql(u8, value, "csv")) {
-		return Formats{ .text = false, .csv = true, .json = false };
-	}
-	if (std.mem.eql(u8, value, "json")) {
-		return Formats{ .text = false, .csv = false, .json = true };
-	}
-	return error.InvalidFormat;
-}
+const Formats = arg_parse.Formats;
+const parseFormats = arg_parse.parseFormats;
 
 fn printSimResult(io: std.Io, result: nanorq.SimResult, formats: Formats) !void {
 	var buf: [4096]u8 = undefined;
@@ -298,43 +279,13 @@ fn printSimResult(io: std.Io, result: nanorq.SimResult, formats: Formats) !void 
 	try out.interface.flush();
 }
 
-fn parseShape(args: []const []const u8, idx: usize) !nanorq.NoiseShape {
-	const value = args[idx];
-	if (std.mem.eql(u8, value, "random")) return .random;
-	if (std.mem.eql(u8, value, "clustered")) return .clustered;
-	if (std.mem.eql(u8, value, "normalized")) return .normalized;
-	return error.InvalidNoiseShape;
-}
-
-fn parseU16(args: []const []const u8, idx: usize) !u16 {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseInt(u16, args[idx], 10);
-}
-
-fn parseU8(args: []const []const u8, idx: usize) !u8 {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseInt(u8, args[idx], 10);
-}
-
-fn parseU32(args: []const []const u8, idx: usize) !u32 {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseInt(u32, args[idx], 10);
-}
-
-fn parseU64(args: []const []const u8, idx: usize) !u64 {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseInt(u64, args[idx], 10);
-}
-
-fn parseUsize(args: []const []const u8, idx: usize) !usize {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseInt(usize, args[idx], 10);
-}
-
-fn parseF64(args: []const []const u8, idx: usize) !f64 {
-	if (idx >= args.len) return error.MissingValue;
-	return std.fmt.parseFloat(f64, args[idx]);
-}
+const parseShape = arg_parse.parseShape;
+const parseU16 = arg_parse.parseU16;
+const parseU8 = arg_parse.parseU8;
+const parseU32 = arg_parse.parseU32;
+const parseU64 = arg_parse.parseU64;
+const parseUsize = arg_parse.parseUsize;
+const parseF64 = arg_parse.parseF64;
 
 fn readAllStdin(io: std.Io, allocator: std.mem.Allocator) ![]u8 {
 	var scratch: [4096]u8 = undefined;
